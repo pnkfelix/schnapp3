@@ -43,7 +43,7 @@ export const BLOCK_DEFS = {
     label: 'Union',
     category: 'combine',
     params: [],
-    maxChildren: 2
+    maxChildren: Infinity
   }
 };
 
@@ -270,9 +270,9 @@ function renderBlock(block) {
     for (const child of block.children) {
       childrenEl.appendChild(renderBlock(child));
     }
-    // Show drop zones for remaining capacity
+    // Show drop zone if there's remaining capacity
     const remaining = def.maxChildren - block.children.length;
-    for (let i = 0; i < remaining; i++) {
+    if (remaining > 0) {
       const dropZone = document.createElement('div');
       dropZone.className = 'drop-zone';
       dropZone.dataset.dropTarget = block.id;
