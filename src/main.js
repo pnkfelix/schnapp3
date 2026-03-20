@@ -90,6 +90,10 @@ function executeCommand(text) {
   setTimeout(() => { commandInput.style.borderColor = ''; }, 500);
 }
 
+document.getElementById('command-go').addEventListener('click', () => {
+  executeCommand(commandInput.value);
+});
+
 commandInput.addEventListener('input', updateAutocomplete);
 commandInput.addEventListener('focus', updateAutocomplete);
 commandInput.addEventListener('blur', () => {
