@@ -2,7 +2,7 @@ name: PR Preview
 
 on:
   pull_request:
-    types: [labeled, synchronize, closed, unlabeled]
+    types: [labeled, synchronize]
 
 permissions:
   contents: read
@@ -95,31 +95,3 @@ jobs:
             });
         env:
           PAGES_URL: ${{ steps.deployment.outputs.page_url }}
-
-  cleanup-preview:
-    if: >-
-      github.event.action == 'closed'  && contains(github.event.pull_request.labels.*.name, 'preview')
-      || github.event.action == 'unlabeled' && github.event.label.name == 'preview'
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Checkout main
-        uses: actions/checkout@v4
-
-      - name: Stamp version from latest merged PR
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PR=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 1 --json number --jq '.[0].number // empty')
-          if [ -n "$PR" ]; then
-            sed -i "s|>dev<|>PR #${PR}<|" index.html
-          fi
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: .
-
-      - id: deployment
-        uses: actions/deploy-pages@v4
