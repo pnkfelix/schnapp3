@@ -22,8 +22,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # No build step yet — just deploy static files as-is.
-      # When we add a build step (WASM, bundler, etc.), insert it here.
+      - name: Stamp version from latest merged PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$PR" ]; then
+            sed -i "s|>dev<|>PR #${PR}<|" index.html
+          fi
 
       - uses: actions/upload-pages-artifact@v3
         with:
