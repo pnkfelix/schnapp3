@@ -1,0 +1,141 @@
+name: PR Preview
+
+on:
+  pull_request:
+    types: [labeled, synchronize, closed, unlabeled]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  pull-requests: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy-preview:
+    if: >-
+      github.event.action == 'labeled' && github.event.label.name == 'preview'
+      || github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'preview')
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}preview/?pr=${{ github.event.pull_request.number }}
+    steps:
+      - name: Check for other preview PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OTHER=$(gh pr list --repo "$GITHUB_REPOSITORY" --label preview --json number \
+            --jq "[.[] | select(.number != ${{ github.event.pull_request.number }})] | length")
+          if [ "$OTHER" -gt 0 ]; then
+            echo "::error::Another PR already has the 'preview' label. Remove it first."
+            exit 1
+          fi
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: site
+
+      - name: Stamp main version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd site
+          PR=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$PR" ]; then
+            sed -i "s|>dev<|>PR #${PR}<|" index.html
+          fi
+
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: preview
+
+      - name: Assemble preview
+        run: |
+          PR_NUM=${{ github.event.pull_request.number }}
+
+          # Stamp PR number in preview version badge
+          sed -i "s|>dev<|>preview PR #${PR_NUM}<|" preview/index.html
+
+          # Add no-cache meta tags to preview index.html
+          sed -i '/<meta charset/a\  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">\n  <meta http-equiv="Pragma" content="no-cache">\n  <meta http-equiv="Expires" content="0">' preview/index.html
+
+          # Move preview into site/preview/
+          mv preview site/preview
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNum = context.payload.pull_request.number;
+            const url = `${process.env.PAGES_URL}preview/?pr=${prNum}`;
+            const body = `🔗 **Preview deployed:** ${url}\n\n_Use ⌘⇧R (Safari) or Ctrl⇧R to hard-refresh if you see stale content._`;
+
+            // Update existing comment or create new one
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNum,
+            });
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Preview deployed:')
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNum,
+                body,
+              });
+            }
+        env:
+          PAGES_URL: ${{ steps.deployment.outputs.page_url }}
+
+  cleanup-preview:
+    if: >-
+      github.event.action == 'closed'  && contains(github.event.pull_request.labels.*.name, 'preview')
+      || github.event.action == 'unlabeled' && github.event.label.name == 'preview'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Stamp version from latest merged PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$PR" ]; then
+            sed -i "s|>dev<|>PR #${PR}<|" index.html
+          fi
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
