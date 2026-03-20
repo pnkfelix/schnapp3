@@ -6,7 +6,7 @@ export const BLOCK_DEFS = {
     category: 'primitive',
     params: [
       { name: 'size', type: 'number', default: 20, min: 1, max: 200 },
-      { name: 'color', type: 'color', default: 'red', options: ['red', 'blue', 'green'] }
+      { name: 'color', type: 'color', default: 'green', options: ['red', 'blue', 'green'] }
     ],
     maxChildren: 0
   },
@@ -15,7 +15,7 @@ export const BLOCK_DEFS = {
     category: 'primitive',
     params: [
       { name: 'radius', type: 'number', default: 15, min: 1, max: 200 },
-      { name: 'color', type: 'color', default: 'blue', options: ['red', 'blue', 'green'] }
+      { name: 'color', type: 'color', default: 'red', options: ['red', 'blue', 'green'] }
     ],
     maxChildren: 0
   },
@@ -25,7 +25,7 @@ export const BLOCK_DEFS = {
     params: [
       { name: 'radius', type: 'number', default: 10, min: 1, max: 200 },
       { name: 'height', type: 'number', default: 30, min: 1, max: 200 },
-      { name: 'color', type: 'color', default: 'green', options: ['red', 'blue', 'green'] }
+      { name: 'color', type: 'color', default: 'blue', options: ['red', 'blue', 'green'] }
     ],
     maxChildren: 0
   },
