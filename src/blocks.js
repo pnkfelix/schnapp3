@@ -1,12 +1,29 @@
 // ---- Block type definitions ----
 
 export const BLOCK_DEFS = {
-  cube: {
-    label: 'Cube',
+  union: {
+    label: 'Union',
+    category: 'combine',
+    params: [],
+    maxChildren: Infinity
+  },
+  translate: {
+    label: 'Translate',
+    category: 'transform',
+    params: [
+      { name: 'x', type: 'number', default: 0, min: -200, max: 200 },
+      { name: 'y', type: 'number', default: 0, min: -200, max: 200 },
+      { name: 'z', type: 'number', default: 0, min: -200, max: 200 }
+    ],
+    maxChildren: 1
+  },
+  cylinder: {
+    label: 'Cylinder',
     category: 'primitive',
     params: [
-      { name: 'size', type: 'number', default: 20, min: 1, max: 200 },
-      { name: 'color', type: 'color', default: 'red', options: ['red', 'blue', 'green'] }
+      { name: 'radius', type: 'number', default: 10, min: 1, max: 200 },
+      { name: 'height', type: 'number', default: 30, min: 1, max: 200 },
+      { name: 'color', type: 'color', default: 'green', options: ['red', 'blue', 'green'] }
     ],
     maxChildren: 0
   },
@@ -19,31 +36,14 @@ export const BLOCK_DEFS = {
     ],
     maxChildren: 0
   },
-  cylinder: {
-    label: 'Cylinder',
+  cube: {
+    label: 'Cube',
     category: 'primitive',
     params: [
-      { name: 'radius', type: 'number', default: 10, min: 1, max: 200 },
-      { name: 'height', type: 'number', default: 30, min: 1, max: 200 },
-      { name: 'color', type: 'color', default: 'green', options: ['red', 'blue', 'green'] }
+      { name: 'size', type: 'number', default: 20, min: 1, max: 200 },
+      { name: 'color', type: 'color', default: 'red', options: ['red', 'blue', 'green'] }
     ],
     maxChildren: 0
-  },
-  translate: {
-    label: 'Translate',
-    category: 'transform',
-    params: [
-      { name: 'x', type: 'number', default: 0, min: -200, max: 200 },
-      { name: 'y', type: 'number', default: 0, min: -200, max: 200 },
-      { name: 'z', type: 'number', default: 0, min: -200, max: 200 }
-    ],
-    maxChildren: 1
-  },
-  union: {
-    label: 'Union',
-    category: 'combine',
-    params: [],
-    maxChildren: Infinity
   }
 };
 
