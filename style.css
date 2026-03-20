@@ -54,7 +54,7 @@ html, body {
 
 #palette {
   display: flex;
-  gap: 8px;
+  gap: 14px;
   padding: 8px;
   overflow-x: auto;
   flex-shrink: 0;
