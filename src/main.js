@@ -10,19 +10,32 @@ const viewport = createViewport(document.getElementById('viewport-panel'));
 initPalette(document.getElementById('palette'));
 initWorkspace(document.getElementById('workspace'));
 
-// Tab bar: switch between panels (one at a time)
-const tabs = document.querySelectorAll('.tab');
-const mainPanels = document.querySelectorAll('.panel[data-panel="workspace"], .panel[data-panel="code"], .panel[data-panel="3d"]');
+// Tab bar: toggle panels, max 2 main panels at a time
+const MAX_PANELS = 2;
 
-for (const tab of tabs) {
+for (const tab of document.querySelectorAll('.tab')) {
   tab.addEventListener('click', () => {
     const panelName = tab.dataset.tab;
-    // Deactivate all main panels and tabs
-    for (const t of tabs) t.classList.remove('tab--active');
-    for (const p of mainPanels) p.classList.remove('panel--active');
-    // Activate selected
-    tab.classList.add('tab--active');
-    document.querySelector(`.panel[data-panel="${panelName}"]`).classList.add('panel--active');
+    const panel = document.querySelector(`.panel[data-panel="${panelName}"]`);
+    const isActive = tab.classList.contains('tab--active');
+
+    if (isActive) {
+      // Don't allow turning off the last panel
+      const activeCount = document.querySelectorAll('.tab.tab--active').length;
+      if (activeCount <= 1) return;
+      tab.classList.remove('tab--active');
+      panel.classList.remove('panel--active');
+    } else {
+      // If at max, turn off the first active one
+      const activeTabs = [...document.querySelectorAll('.tab.tab--active')];
+      if (activeTabs.length >= MAX_PANELS) {
+        const oldest = activeTabs[0];
+        oldest.classList.remove('tab--active');
+        document.querySelector(`.panel[data-panel="${oldest.dataset.tab}"]`).classList.remove('panel--active');
+      }
+      tab.classList.add('tab--active');
+      panel.classList.add('panel--active');
+    }
   });
 }
 

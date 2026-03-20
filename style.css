@@ -36,7 +36,8 @@ html, body {
 
 #panels {
   flex: 1;
-  position: relative;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   min-height: 0;
 }
@@ -45,23 +46,25 @@ html, body {
 
 .panel {
   display: none;
+  overflow: hidden;
+  min-height: 0;
 }
 
 .panel--active {
   display: flex;
   flex-direction: column;
-  position: absolute;
-  inset: 0;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
-/* Palette is always-visible strip above the main panels, not positioned */
+/* Palette is always-visible strip, doesn't compete for flex space */
 #palette-panel {
-  position: static !important;
-  flex-shrink: 0;
+  flex: 0 0 auto;
 }
 
 #palette-panel.panel--active {
-  position: static !important;
+  flex: 0 0 auto;
 }
 
 /* ---- Tab bar ---- */
