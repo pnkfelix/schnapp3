@@ -36,8 +36,7 @@ html, body {
 
 #panels {
   flex: 1;
-  display: flex;
-  flex-direction: column;
+  position: relative;
   overflow: hidden;
   min-height: 0;
 }
@@ -46,26 +45,23 @@ html, body {
 
 .panel {
   display: none;
-  overflow: hidden;
-  min-height: 0;
 }
 
 .panel--active {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
 }
 
-/* Palette panel doesn't need to grow — it's a fixed-height strip */
+/* Palette is always-visible strip above the main panels, not positioned */
+#palette-panel {
+  position: static !important;
+  flex-shrink: 0;
+}
+
 #palette-panel.panel--active {
-  flex: 0 0 auto;
-}
-
-/* Code panel: don't grow unbounded */
-#code-panel.panel--active {
-  flex: 0 1 auto;
-  max-height: 30vh;
+  position: static !important;
 }
 
 /* ---- Tab bar ---- */
@@ -75,7 +71,7 @@ html, body {
   flex-shrink: 0;
   background: #0f1a33;
   border-top: 1px solid #0f3460;
-  padding: 4px 4px;
+  padding: 4px;
   padding-bottom: max(4px, env(safe-area-inset-bottom));
   gap: 4px;
 }
@@ -98,6 +94,11 @@ html, body {
   background: rgba(255,255,255,0.15);
   color: #e0e0e0;
   border-color: rgba(255,255,255,0.25);
+}
+
+/* Hide the palette tab — palette is always visible */
+.tab[data-tab="palette"] {
+  display: none;
 }
 
 /* ---- Palette ---- */
@@ -131,10 +132,6 @@ html, body {
 }
 
 /* ---- Workspace ---- */
-
-#workspace-panel.panel--active {
-  overflow-y: auto;
-}
 
 #workspace {
   flex: 1;
@@ -296,7 +293,7 @@ html, body {
 /* ---- Code preview ---- */
 
 #code-panel {
-  border-top: 1px solid #0f3460;
+  background: #16213e;
 }
 
 #code-output {
@@ -319,7 +316,6 @@ html, body {
   position: relative;
   overflow: hidden;
   background: #f0f0f0;
-  min-height: 200px;
 }
 
 #viewport-panel canvas {
