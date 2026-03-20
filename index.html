@@ -31,7 +31,10 @@
     </div>
     <div id="command-bar">
       <div id="autocomplete"></div>
-      <input id="command-input" type="text" placeholder="show blocks 3d" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div id="command-row">
+        <input id="command-input" type="text" placeholder="show blocks 3d" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <button id="command-go" type="button" aria-label="Run command">&#x25B6;</button>
+      </div>
     </div>
   </div>
   <script type="module" src="src/main.js"></script>
