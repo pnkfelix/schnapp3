@@ -10,13 +10,19 @@ const viewport = createViewport(document.getElementById('viewport-panel'));
 initPalette(document.getElementById('palette'));
 initWorkspace(document.getElementById('workspace'));
 
-// Tab bar: toggle panels on/off
-for (const tab of document.querySelectorAll('.tab')) {
+// Tab bar: switch between panels (one at a time)
+const tabs = document.querySelectorAll('.tab');
+const mainPanels = document.querySelectorAll('.panel[data-panel="workspace"], .panel[data-panel="code"], .panel[data-panel="3d"]');
+
+for (const tab of tabs) {
   tab.addEventListener('click', () => {
     const panelName = tab.dataset.tab;
-    const panel = document.querySelector(`.panel[data-panel="${panelName}"]`);
-    tab.classList.toggle('tab--active');
-    panel.classList.toggle('panel--active');
+    // Deactivate all main panels and tabs
+    for (const t of tabs) t.classList.remove('tab--active');
+    for (const p of mainPanels) p.classList.remove('panel--active');
+    // Activate selected
+    tab.classList.add('tab--active');
+    document.querySelector(`.panel[data-panel="${panelName}"]`).classList.add('panel--active');
   });
 }
 
