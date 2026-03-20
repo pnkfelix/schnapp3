@@ -80,6 +80,9 @@ html, body {
 
 #command-row {
   display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
   gap: 4px;
 }
 
@@ -106,8 +109,11 @@ html, body {
 }
 
 #command-go {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 44px;
-  min-height: 44px;
+  height: 44px;
   flex-shrink: 0;
   border: 2px solid rgba(255,255,255,0.15);
   border-radius: 8px;
@@ -117,6 +123,9 @@ html, body {
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-appearance: none;
+  appearance: none;
+  padding: 0;
 }
 
 #command-go:active {
