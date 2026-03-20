@@ -2,7 +2,7 @@
 
 export const BLOCK_DEFS = {
   cube: {
-    label: 'KUBE',
+    label: 'Kube',
     category: 'primitive',
     params: [
       { name: 'size', type: 'number', default: 20, min: 1, max: 200 },
