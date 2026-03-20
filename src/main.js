@@ -10,6 +10,16 @@ const viewport = createViewport(document.getElementById('viewport-panel'));
 initPalette(document.getElementById('palette'));
 initWorkspace(document.getElementById('workspace'));
 
+// Tab bar: toggle panels on/off
+for (const tab of document.querySelectorAll('.tab')) {
+  tab.addEventListener('click', () => {
+    const panelName = tab.dataset.tab;
+    const panel = document.querySelector(`.panel[data-panel="${panelName}"]`);
+    tab.classList.toggle('tab--active');
+    panel.classList.toggle('panel--active');
+  });
+}
+
 // Pipeline: block changes → codegen → eval → viewport
 const codeOutput = document.getElementById('code-output');
 

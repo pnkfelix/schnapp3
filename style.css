@@ -28,26 +28,75 @@ html, body {
 /* ---- Layout ---- */
 
 #app {
-  display: grid;
-  grid-template-columns: 360px 1fr;
+  display: flex;
+  flex-direction: column;
   height: 100vh;
 }
 
-@media (max-width: 768px) {
-  #app {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr 1fr;
-  }
-}
-
-/* ---- Editor panel ---- */
-
-#editor-panel {
+#panels {
+  flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #16213e;
-  border-right: 1px solid #0f3460;
+  min-height: 0;
+}
+
+/* ---- Panels ---- */
+
+.panel {
+  display: none;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.panel--active {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Palette panel doesn't need to grow — it's a fixed-height strip */
+#palette-panel.panel--active {
+  flex: 0 0 auto;
+}
+
+/* Code panel: don't grow unbounded */
+#code-panel.panel--active {
+  flex: 0 1 auto;
+  max-height: 30vh;
+}
+
+/* ---- Tab bar ---- */
+
+#tab-bar {
+  display: flex;
+  flex-shrink: 0;
+  background: #0f1a33;
+  border-top: 1px solid #0f3460;
+  padding: 4px 4px;
+  padding-bottom: max(4px, env(safe-area-inset-bottom));
+  gap: 4px;
+}
+
+.tab {
+  flex: 1;
+  min-height: 44px;
+  border: 2px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.4);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.tab--active {
+  background: rgba(255,255,255,0.15);
+  color: #e0e0e0;
+  border-color: rgba(255,255,255,0.25);
 }
 
 /* ---- Palette ---- */
@@ -88,6 +137,7 @@ html, body {
   padding: 8px;
   -webkit-overflow-scrolling: touch;
   min-height: 0;
+  background: #16213e;
 }
 
 #workspace:empty::after {
@@ -241,19 +291,7 @@ html, body {
 /* ---- Code preview ---- */
 
 #code-panel {
-  flex-shrink: 0;
   border-top: 1px solid #0f3460;
-}
-
-#code-panel summary {
-  padding: 8px 10px;
-  cursor: pointer;
-  font-size: 13px;
-  color: rgba(255,255,255,0.6);
-  user-select: none;
-  min-height: 36px;
-  display: flex;
-  align-items: center;
 }
 
 #code-output {
@@ -263,10 +301,11 @@ html, body {
   line-height: 1.5;
   color: #a0d0a0;
   background: rgba(0,0,0,0.2);
-  overflow-x: auto;
-  max-height: 200px;
-  overflow-y: auto;
+  overflow: auto;
   white-space: pre;
+  margin: 0;
+  flex: 1;
+  min-height: 0;
 }
 
 /* ---- Viewport ---- */

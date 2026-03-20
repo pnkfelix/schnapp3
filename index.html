@@ -17,15 +17,24 @@
 <body>
   <div id="version-badge">dev</div>
   <div id="app">
-    <div id="editor-panel">
-      <div id="palette"></div>
-      <div id="workspace"></div>
-      <details id="code-panel">
-        <summary>Code Preview</summary>
+    <div id="panels">
+      <div class="panel panel--active" id="palette-panel" data-panel="palette">
+        <div id="palette"></div>
+      </div>
+      <div class="panel panel--active" id="workspace-panel" data-panel="workspace">
+        <div id="workspace"></div>
+      </div>
+      <div class="panel" id="code-panel" data-panel="code">
         <pre id="code-output">(empty)</pre>
-      </details>
+      </div>
+      <div class="panel panel--active" id="viewport-panel" data-panel="3d"></div>
     </div>
-    <div id="viewport-panel"></div>
+    <div id="tab-bar">
+      <button class="tab tab--active" data-tab="palette">Palette</button>
+      <button class="tab tab--active" data-tab="workspace">Blocks</button>
+      <button class="tab" data-tab="code">Code</button>
+      <button class="tab tab--active" data-tab="3d">3D</button>
+    </div>
   </div>
   <script type="module" src="src/main.js"></script>
 </body>
