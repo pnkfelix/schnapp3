@@ -29,10 +29,9 @@
       </div>
       <div class="panel panel--active" id="viewport-panel" data-panel="3d"></div>
     </div>
-    <div id="tab-bar">
-      <button class="tab tab--active" data-tab="workspace">Blocks</button>
-      <button class="tab" data-tab="code">Code</button>
-      <button class="tab tab--active" data-tab="3d">3D</button>
+    <div id="command-bar">
+      <div id="autocomplete"></div>
+      <input id="command-input" type="text" placeholder="show blocks 3d" autocomplete="off" autocapitalize="off" spellcheck="false">
     </div>
   </div>
   <script type="module" src="src/main.js"></script>
