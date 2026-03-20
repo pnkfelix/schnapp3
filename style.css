@@ -53,51 +53,90 @@ html, body {
 .panel--active {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
+  overflow: hidden;
 }
 
-/* Palette panel doesn't need to grow — it's a fixed-height strip */
+/* Palette is always-visible strip, doesn't compete for flex space */
+#palette-panel {
+  flex: 0 0 auto;
+}
+
 #palette-panel.panel--active {
   flex: 0 0 auto;
 }
 
-/* Code panel: don't grow unbounded */
-#code-panel.panel--active {
-  flex: 0 1 auto;
-  max-height: 30vh;
-}
+/* ---- Command bar ---- */
 
-/* ---- Tab bar ---- */
-
-#tab-bar {
-  display: flex;
+#command-bar {
   flex-shrink: 0;
-  background: #0f1a33;
+  position: relative;
+  background: #0a0f1e;
   border-top: 1px solid #0f3460;
-  padding: 4px 4px;
+  padding: 4px;
   padding-bottom: max(4px, env(safe-area-inset-bottom));
-  gap: 4px;
 }
 
-.tab {
-  flex: 1;
+#command-input {
+  width: 100%;
   min-height: 44px;
-  border: 2px solid rgba(255,255,255,0.1);
+  padding: 8px 12px;
+  border: 2px solid rgba(255,255,255,0.15);
   border-radius: 8px;
   background: rgba(255,255,255,0.05);
-  color: rgba(255,255,255,0.4);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
+  color: #e0e0e0;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 16px; /* prevents iOS zoom */
 }
 
-.tab--active {
-  background: rgba(255,255,255,0.15);
+#command-input::placeholder {
+  color: rgba(255,255,255,0.25);
+}
+
+#command-input:focus {
+  outline: none;
+  border-color: #e94560;
+}
+
+#autocomplete {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 4px;
+  right: 4px;
+  background: #16213e;
+  border: 1px solid #0f3460;
+  border-radius: 8px 8px 0 0;
+  overflow: hidden;
+}
+
+#autocomplete.visible {
+  display: block;
+}
+
+.autocomplete-item {
+  padding: 10px 12px;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 14px;
+  color: rgba(255,255,255,0.7);
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.autocomplete-item:last-child {
+  border-bottom: none;
+}
+
+.autocomplete-item--selected, .autocomplete-item:active {
+  background: rgba(233,69,96,0.2);
   color: #e0e0e0;
-  border-color: rgba(255,255,255,0.25);
+}
+
+.autocomplete-hint {
+  color: rgba(255,255,255,0.3);
+  font-size: 12px;
+  margin-left: 8px;
 }
 
 /* ---- Palette ---- */
@@ -131,10 +170,6 @@ html, body {
 }
 
 /* ---- Workspace ---- */
-
-#workspace-panel.panel--active {
-  overflow-y: auto;
-}
 
 #workspace {
   flex: 1;
@@ -296,7 +331,7 @@ html, body {
 /* ---- Code preview ---- */
 
 #code-panel {
-  border-top: 1px solid #0f3460;
+  background: #16213e;
 }
 
 #code-output {
@@ -319,7 +354,6 @@ html, body {
   position: relative;
   overflow: hidden;
   background: #f0f0f0;
-  min-height: 200px;
 }
 
 #viewport-panel canvas {
