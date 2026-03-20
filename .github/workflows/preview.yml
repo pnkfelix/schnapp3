@@ -87,30 +87,12 @@ jobs:
             const time = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
             const body = `🔗 **Preview deployed:** ${url}\n\nCommit: \`${sha}\` | Deployed: ${time}\n\n_Use ⌘⇧R (Safari) or Ctrl⇧R to hard-refresh if you see stale content._`;
 
-            // Update existing comment or create new one
-            const { data: comments } = await github.rest.issues.listComments({
+            await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNum,
+              body,
             });
-            const existing = comments.find(c =>
-              c.user.type === 'Bot' && c.body.includes('Preview deployed:')
-            );
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNum,
-                body,
-              });
-            }
         env:
           PAGES_URL: ${{ steps.deployment.outputs.page_url }}
 
