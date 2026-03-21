@@ -175,11 +175,10 @@ codeOutput.addEventListener('input', () => {
 });
 
 // Default scene as S-expr
-const DEFAULT_MODEL = `(smooth-union
-  (paint :color "red"
+const DEFAULT_MODEL = `(paint :color "blue"
+  (smooth-union
     (translate 15 0 0
-      (cube 20)))
-  (paint :color "blue"
+      (cube 20))
     (sphere 15)))`;
 
 function loadModel(sexpr) {
