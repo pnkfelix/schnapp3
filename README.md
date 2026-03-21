@@ -2,11 +2,11 @@
 
 **A visual block-based programming environment for designing 3D-printable objects.**
 
-Schnapp3 is a web-based tool combining the ease of block-based visual programming (like [Scratch](https://scratch.mit.edu/)/[Snap!](https://snap.berkeley.edu/)) with the power of parametric 3D modeling (like OpenSCAD). Design multi-filament and multi-material objects interactively without writing code.
-
 ## Live Demo
 
 https://pnkfx.org/schnapp3/
+
+Schnapp3 is a web-based tool combining the ease of block-based visual programming (like [Scratch](https://scratch.mit.edu/)/[Snap!](https://snap.berkeley.edu/)) with the power of parametric 3D modeling (like OpenSCAD). Design multi-filament and multi-material objects interactively without writing code.
 
 ## Project Goals
 
