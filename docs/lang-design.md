@@ -270,8 +270,10 @@ Each point in space carries a two-component value:
 (polarity, distance)
 
 polarity  ∈ {−1, 0, +1}    material charge: anti-solid / empty / solid
-distance  ∈ ℝ               signed distance to nearest surface (SDF convention:
-                             negative inside, positive outside)
+distance  ∈ ℝ               signed distance to this shape's own nearest surface,
+                             independent of any other shapes (SDF convention: negative
+                             inside, positive outside); CSG operators compose distance
+                             fields via min/max
 ```
 
 The two negations operate on different components:
