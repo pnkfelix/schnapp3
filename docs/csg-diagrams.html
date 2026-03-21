@@ -238,99 +238,177 @@ This is why <code>intersect</code> is the right operator for scoped subtraction.
 
 
 <!-- ═══════════════════════════════════════════════════════ -->
-<h2>5. Charge propagation: the full 2×2 table</h2>
-<p>All four combinations of <code>intersect(±A, complement(±B))</code>.
-Geometry is always A−B (the left crescent). Charge follows the multiplication rule.</p>
+<h2>5. All combinations: {union, intersect} × {A, anti A, compl A, anti compl A} × {B, anti B, compl B, anti compl B}</h2>
 
-<table class="matrix">
-<thead>
+<p>Shorthand: <b>cX</b> = complement(X); <b>acX</b> = anti(complement(X)) = complement(anti(X)).
+The four variants of each operand:</p>
+<table style="font-size:0.82em; margin:0.5em 0 1em; border-collapse:collapse">
 <tr>
-  <th></th>
-  <th><code>complement(solid B)</code><br>hole charge: +1 outside</th>
-  <th><code>complement(anti B)</code><br>hole charge: −1 outside</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-  <th><code>solid A</code><br>p_A = +1</th>
-  <td>
-    <!-- +1 x +1 = solid -->
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100" width="160" height="100">
-      <defs>
-        <clipPath id="t1-cA"><circle cx="62" cy="50" r="37"/></clipPath>
-        <mask id="t1-notB"><rect width="160" height="100" fill="white"/><circle cx="98" cy="50" r="37" fill="black"/></mask>
-      </defs>
-      <rect width="160" height="100" fill="#e4e4e4"/>
-      <rect width="160" height="100" fill="#4488cc" clip-path="url(#t1-cA)" mask="url(#t1-notB)"/>
-      <circle cx="62" cy="50" r="37" fill="none" stroke="#224488" stroke-width="1.5"/>
-      <circle cx="98" cy="50" r="37" fill="none" stroke="#888"    stroke-width="1"   stroke-dasharray="3 2"/>
-      <text x="38" y="48" text-anchor="middle" font-size="8" font-family="monospace" fill="white">+1×+1</text>
-      <text x="38" y="59" text-anchor="middle" font-size="8" font-family="monospace" fill="white">= +1</text>
-      <text x="38" y="70" text-anchor="middle" font-size="8" font-family="monospace" fill="white">solid</text>
-    </svg>
-    <br><small><code>+1 × +1 = +1</code> — solid A−B</small>
-  </td>
-  <td>
-    <!-- +1 x -1 = anti -->
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100" width="160" height="100">
-      <defs>
-        <clipPath id="t2-cA"><circle cx="62" cy="50" r="37"/></clipPath>
-        <mask id="t2-notB"><rect width="160" height="100" fill="white"/><circle cx="98" cy="50" r="37" fill="black"/></mask>
-      </defs>
-      <rect width="160" height="100" fill="#e4e4e4"/>
-      <rect width="160" height="100" fill="#cc4444" clip-path="url(#t2-cA)" mask="url(#t2-notB)"/>
-      <circle cx="62" cy="50" r="37" fill="none" stroke="#224488" stroke-width="1.5"/>
-      <circle cx="98" cy="50" r="37" fill="none" stroke="#882222" stroke-width="1"   stroke-dasharray="3 2"/>
-      <text x="38" y="48" text-anchor="middle" font-size="8" font-family="monospace" fill="white">+1×−1</text>
-      <text x="38" y="59" text-anchor="middle" font-size="8" font-family="monospace" fill="white">= −1</text>
-      <text x="38" y="70" text-anchor="middle" font-size="8" font-family="monospace" fill="white">anti</text>
-    </svg>
-    <br><small><code>+1 × −1 = −1</code> — anti A−B</small>
-  </td>
+  <td style="padding:2px 12px 2px 0"><code>X</code></td>
+  <td>solid disk: polarity +1 inside, 0 outside</td>
 </tr>
 <tr>
-  <th><code>anti A</code><br>p_A = −1</th>
-  <td>
-    <!-- -1 x +1 = anti -->
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100" width="160" height="100">
-      <defs>
-        <clipPath id="t3-cA"><circle cx="62" cy="50" r="37"/></clipPath>
-        <mask id="t3-notB"><rect width="160" height="100" fill="white"/><circle cx="98" cy="50" r="37" fill="black"/></mask>
-      </defs>
-      <rect width="160" height="100" fill="#e4e4e4"/>
-      <rect width="160" height="100" fill="#cc4444" clip-path="url(#t3-cA)" mask="url(#t3-notB)"/>
-      <circle cx="62" cy="50" r="37" fill="none" stroke="#882222" stroke-width="1.5" stroke-dasharray="5 3"/>
-      <circle cx="98" cy="50" r="37" fill="none" stroke="#888"    stroke-width="1"   stroke-dasharray="3 2"/>
-      <text x="38" y="48" text-anchor="middle" font-size="8" font-family="monospace" fill="white">−1×+1</text>
-      <text x="38" y="59" text-anchor="middle" font-size="8" font-family="monospace" fill="white">= −1</text>
-      <text x="38" y="70" text-anchor="middle" font-size="8" font-family="monospace" fill="white">anti</text>
-    </svg>
-    <br><small><code>−1 × +1 = −1</code> — anti A−B</small>
-  </td>
-  <td>
-    <!-- -1 x -1 = solid (two negatives) -->
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100" width="160" height="100">
-      <defs>
-        <clipPath id="t4-cA"><circle cx="62" cy="50" r="37"/></clipPath>
-        <mask id="t4-notB"><rect width="160" height="100" fill="white"/><circle cx="98" cy="50" r="37" fill="black"/></mask>
-      </defs>
-      <rect width="160" height="100" fill="#e4e4e4"/>
-      <rect width="160" height="100" fill="#4488cc" clip-path="url(#t4-cA)" mask="url(#t4-notB)"/>
-      <circle cx="62" cy="50" r="37" fill="none" stroke="#882222" stroke-width="1.5" stroke-dasharray="5 3"/>
-      <circle cx="98" cy="50" r="37" fill="none" stroke="#882222" stroke-width="1"   stroke-dasharray="3 2"/>
-      <text x="38" y="48" text-anchor="middle" font-size="8" font-family="monospace" fill="white">−1×−1</text>
-      <text x="38" y="59" text-anchor="middle" font-size="8" font-family="monospace" fill="white">= +1</text>
-      <text x="38" y="70" text-anchor="middle" font-size="8" font-family="monospace" fill="white">solid</text>
-    </svg>
-    <br><small><code>−1 × −1 = +1</code> — solid A−B (two negatives)</small>
-  </td>
+  <td style="padding:2px 12px 2px 0"><code>anti X</code></td>
+  <td>anti-solid disk: polarity −1 inside, 0 outside (same geometry, opposite charge)</td>
 </tr>
-</tbody>
+<tr>
+  <td style="padding:2px 12px 2px 0"><code>cX</code></td>
+  <td>infinite solid with hole: polarity +1 outside X, 0 inside X</td>
+</tr>
+<tr>
+  <td style="padding:2px 12px 2px 0"><code>acX</code></td>
+  <td>infinite anti-solid with hole: polarity −1 outside X, 0 inside X</td>
+</tr>
 </table>
 
-<p>Bottom-right cell: <code>intersect(anti A, complement(anti B))</code> — two anti-solids, one complemented,
-intersected. The anti-anti cancels to solid. Same geometry as A−B in all four cases;
-only the material charge differs.</p>
+<p>Background color shows the <em>outside-both</em> region (infinite extent when non-gray).
+Hover a cell for the formula. Thin circle outlines show A (left) and B (right) for reference.</p>
+
+<h3 style="margin-top:1.5em">union</h3>
+<table id="union-table" class="matrix"></table>
+
+<h3 style="margin-top:1.5em">intersect</h3>
+<table id="intersect-table" class="matrix"></table>
+
+<script>
+let _id = 0;
+
+function clr(p) {
+  return p === 1 ? '#4488cc' : p === -1 ? '#cc4444' : '#e4e4e4';
+}
+
+function makeDiagram(result, title) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const id = 'g' + (_id++);
+  const W = 100, H = 70;
+  const ax = 36, ay = 35, ar = 27;
+  const bx = 64, by = 35, br = 27;
+
+  function el(tag, attrs, children) {
+    const e = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    if (children) children.forEach(c => e.appendChild(c));
+    return e;
+  }
+
+  const defs = el('defs', {}, [
+    el('clipPath', {id: id+'-cA'}, [el('circle', {cx:ax, cy:ay, r:ar})]),
+    el('clipPath', {id: id+'-cB'}, [el('circle', {cx:bx, cy:by, r:br})]),
+    el('mask', {id: id+'-nB'}, [
+      el('rect', {width:W, height:H, fill:'white'}),
+      el('circle', {cx:bx, cy:by, r:br, fill:'black'})
+    ]),
+    el('mask', {id: id+'-nA'}, [
+      el('rect', {width:W, height:H, fill:'white'}),
+      el('circle', {cx:ax, cy:ay, r:ar, fill:'black'})
+    ]),
+  ]);
+
+  // A∩B region via nested clip-path
+  const aib = el('g', {'clip-path': `url(#${id}-cA)`}, [
+    el('rect', {width:W, height:H, fill: clr(result.aib), 'clip-path': `url(#${id}-cB)`})
+  ]);
+
+  const titleEl = document.createElementNS(ns, 'title');
+  titleEl.textContent = title;
+
+  const svg = el('svg', {
+    xmlns: ns, viewBox: `0 0 ${W} ${H}`, width: W, height: H
+  }, [
+    titleEl,
+    defs,
+    // background = outside-both region
+    el('rect', {width:W, height:H, fill: clr(result.out)}),
+    // A−B region
+    el('rect', {width:W, height:H, fill: clr(result.ab),
+      'clip-path': `url(#${id}-cA)`, mask: `url(#${id}-nB)`}),
+    // A∩B region
+    aib,
+    // B−A region
+    el('rect', {width:W, height:H, fill: clr(result.ba),
+      'clip-path': `url(#${id}-cB)`, mask: `url(#${id}-nA)`}),
+    // reference circles
+    el('circle', {cx:ax, cy:ay, r:ar, fill:'none',
+      stroke:'rgba(255,255,255,0.55)', 'stroke-width':'1'}),
+    el('circle', {cx:bx, cy:by, r:br, fill:'none',
+      stroke:'rgba(255,255,255,0.55)', 'stroke-width':'1'}),
+  ]);
+
+  return svg;
+}
+
+const rowLabels = ['A', 'anti A', 'cA', 'acA'];
+const colLabels = ['B', 'anti B', 'cB', 'acB'];
+
+// Polarity vectors for each variant over (A−B, A∩B, B−A, outside-both):
+//   A:   (+1,+1, 0, 0)    anti A: (−1,−1, 0, 0)
+//   cA:  ( 0, 0,+1,+1)    acA:    ( 0, 0,−1,−1)
+//   B:   ( 0,+1,+1, 0)    anti B: ( 0,−1,−1, 0)
+//   cB:  (+1, 0, 0,+1)    acB:    (−1, 0, 0,−1)
+
+const unionData = [
+  // L = A (+1,+1,0,0)
+  [{ab:1,aib:1,ba:1,out:0},  {ab:1,aib:0,ba:-1,out:0},  {ab:1,aib:1,ba:0,out:1},  {ab:0,aib:1,ba:0,out:-1}],
+  // L = anti A (−1,−1,0,0)
+  [{ab:-1,aib:0,ba:1,out:0}, {ab:-1,aib:-1,ba:-1,out:0},{ab:0,aib:-1,ba:0,out:1}, {ab:-1,aib:-1,ba:0,out:-1}],
+  // L = cA (0,0,+1,+1)
+  [{ab:0,aib:1,ba:1,out:1},  {ab:0,aib:-1,ba:0,out:1},  {ab:1,aib:0,ba:1,out:1},  {ab:-1,aib:0,ba:1,out:0}],
+  // L = acA (0,0,−1,−1)
+  [{ab:0,aib:1,ba:0,out:-1}, {ab:0,aib:-1,ba:-1,out:-1},{ab:1,aib:0,ba:-1,out:0}, {ab:-1,aib:0,ba:-1,out:-1}],
+];
+
+const intersectData = [
+  // L = A (+1,+1,0,0)
+  [{ab:0,aib:1,ba:0,out:0},  {ab:0,aib:-1,ba:0,out:0},  {ab:1,aib:0,ba:0,out:0},  {ab:-1,aib:0,ba:0,out:0}],
+  // L = anti A (−1,−1,0,0)
+  [{ab:0,aib:-1,ba:0,out:0}, {ab:0,aib:1,ba:0,out:0},   {ab:-1,aib:0,ba:0,out:0}, {ab:1,aib:0,ba:0,out:0}],
+  // L = cA (0,0,+1,+1)
+  [{ab:0,aib:0,ba:1,out:0},  {ab:0,aib:0,ba:-1,out:0},  {ab:0,aib:0,ba:0,out:1},  {ab:0,aib:0,ba:0,out:-1}],
+  // L = acA (0,0,−1,−1)
+  [{ab:0,aib:0,ba:-1,out:0}, {ab:0,aib:0,ba:1,out:0},   {ab:0,aib:0,ba:0,out:-1}, {ab:0,aib:0,ba:0,out:1}],
+];
+
+function buildTable(data, op, tableEl) {
+  const thead = document.createElement('thead');
+  const hr = document.createElement('tr');
+  const corner = document.createElement('th');
+  corner.textContent = op + '(L, R)  →';
+  hr.appendChild(corner);
+  for (const col of colLabels) {
+    const th = document.createElement('th');
+    th.style.fontSize = '0.8em';
+    th.style.fontWeight = 'normal';
+    th.innerHTML = `<code>${col}</code>`;
+    hr.appendChild(th);
+  }
+  thead.appendChild(hr);
+  tableEl.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  for (let r = 0; r < 4; r++) {
+    const tr = document.createElement('tr');
+    const th = document.createElement('th');
+    th.style.fontSize = '0.8em';
+    th.style.textAlign = 'right';
+    th.innerHTML = `<code>${rowLabels[r]}</code>`;
+    tr.appendChild(th);
+    for (let c = 0; c < 4; c++) {
+      const td = document.createElement('td');
+      td.style.padding = '3px 4px';
+      const formula = `${op}(${rowLabels[r]}, ${colLabels[c]})`;
+      td.appendChild(makeDiagram(data[r][c], formula));
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  tableEl.appendChild(tbody);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  buildTable(unionData,     'union',     document.getElementById('union-table'));
+  buildTable(intersectData, 'intersect', document.getElementById('intersect-table'));
+});
+</script>
 
 </body>
 </html>
