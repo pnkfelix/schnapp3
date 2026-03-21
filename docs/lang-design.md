@@ -11,6 +11,16 @@ Throughout this document:
 - `A -> B` — a function type from A to B (ASCII; `→` avoided as it's hard to type)
 - `a` — a type variable (stands for any type)
 
+**Application syntax**: this document uses function-call notation `f(a, b, c)`
+throughout. The canonical runtime representation is S-expressions; translation is
+mechanical:
+
+```
+f(a, b, c)   ↔   (f a b c)
+sphere(20)   ↔   (sphere 20)
+stir(sphere, 20)  ↔  (stir sphere 20)
+```
+
 Whether type annotations ever appear in the S-expression syntax is an open question.
 If the system is fully type-inferred, these notations are documentation-only and never
 written by users. If not, `->` is at least typeable.
@@ -63,9 +73,9 @@ The simplest example: applying `sphere` to a scalar. All three of the following 
 equivalent:
 
 ```
-(sphere 20)          -- traditional application
-(stir sphere 20)     -- stir, constructor first
-(stir 20 sphere)     -- stir, scalar first
+sphere(20)           -- traditional application
+stir(sphere, 20)     -- stir, constructor first
+stir(20, sphere)     -- stir, scalar first
 ```
 
 All evaluate to `sphere{r: 20}`. Order does not matter in `stir`.
