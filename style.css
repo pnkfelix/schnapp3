@@ -269,6 +269,33 @@ html, body {
   background: rgba(255,80,80,0.5);
 }
 
+/* Inline single-param in header (e.g. paint color, smooth-union k) */
+.block__inline-param {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  margin: 0 8px;
+  font-size: 13px;
+}
+
+.block__inline-param span {
+  color: rgba(255,255,255,0.7);
+  flex-shrink: 0;
+}
+
+.block__inline-param input[type="number"],
+.block__inline-param select {
+  flex: 1;
+  min-height: 32px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(0,0,0,0.3);
+  color: #e0e0e0;
+  font-size: 16px; /* prevents iOS zoom */
+}
+
 .block__params {
   padding: 6px 10px;
 }

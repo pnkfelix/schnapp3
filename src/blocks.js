@@ -289,11 +289,47 @@ export function renderWorkspace() {
   workspaceEl.appendChild(rootDrop);
 }
 
+function createParamInput(p, block) {
+  const lbl = document.createElement('label');
+  const span = document.createElement('span');
+  span.textContent = p.name;
+  lbl.appendChild(span);
+
+  if (p.type === 'number') {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.value = block.params[p.name];
+    input.min = p.min;
+    input.max = p.max;
+    input.dataset.blockId = block.id;
+    input.dataset.paramName = p.name;
+    lbl.appendChild(input);
+  } else if (p.type === 'color') {
+    const select = document.createElement('select');
+    select.dataset.blockId = block.id;
+    select.dataset.paramName = p.name;
+    for (const opt of p.options) {
+      const option = document.createElement('option');
+      option.value = opt;
+      option.textContent = opt.charAt(0).toUpperCase() + opt.slice(1);
+      if (opt === block.params[p.name]) option.selected = true;
+      select.appendChild(option);
+    }
+    lbl.appendChild(select);
+  }
+  return lbl;
+}
+
 function renderBlock(block) {
   const def = BLOCK_DEFS[block.type];
   const el = document.createElement('div');
   el.className = `block block--${block.type}`;
   el.dataset.blockId = block.id;
+
+  // Inline single scalar param into header to save vertical space.
+  // Revisit when params can accept reporter blocks — a nested block
+  // won't fit inline and the slot will need to expand to a full row.
+  const inlineParam = def.params.length === 1;
 
   // Header
   const header = document.createElement('div');
@@ -305,6 +341,14 @@ function renderBlock(block) {
   label.textContent = def.label;
   header.appendChild(label);
 
+  // Inline single param into header
+  if (inlineParam) {
+    const p = def.params[0];
+    const inlineEl = createParamInput(p, block);
+    inlineEl.classList.add('block__inline-param');
+    header.appendChild(inlineEl);
+  }
+
   const del = document.createElement('button');
   del.className = 'block__delete';
   del.textContent = '\u00d7';
@@ -313,39 +357,12 @@ function renderBlock(block) {
 
   el.appendChild(header);
 
-  // Params
-  if (def.params.length > 0) {
+  // Params (skip if already inlined)
+  if (def.params.length > 0 && !inlineParam) {
     const paramsEl = document.createElement('div');
     paramsEl.className = 'block__params';
     for (const p of def.params) {
-      const lbl = document.createElement('label');
-      const span = document.createElement('span');
-      span.textContent = p.name;
-      lbl.appendChild(span);
-
-      if (p.type === 'number') {
-        const input = document.createElement('input');
-        input.type = 'number';
-        input.value = block.params[p.name];
-        input.min = p.min;
-        input.max = p.max;
-        input.dataset.blockId = block.id;
-        input.dataset.paramName = p.name;
-        lbl.appendChild(input);
-      } else if (p.type === 'color') {
-        const select = document.createElement('select');
-        select.dataset.blockId = block.id;
-        select.dataset.paramName = p.name;
-        for (const opt of p.options) {
-          const option = document.createElement('option');
-          option.value = opt;
-          option.textContent = opt.charAt(0).toUpperCase() + opt.slice(1);
-          if (opt === block.params[p.name]) option.selected = true;
-          select.appendChild(option);
-        }
-        lbl.appendChild(select);
-      }
-      paramsEl.appendChild(lbl);
+      paramsEl.appendChild(createParamInput(p, block));
     }
     el.appendChild(paramsEl);
   }
