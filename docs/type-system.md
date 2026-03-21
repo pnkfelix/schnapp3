@@ -55,9 +55,9 @@ constructor or operator a record reacts with. Two records with different field n
 are different types, even if they contain the same scalar values:
 
 ```
-stir(make-sphere, make-cube, {r: 3}, {w: 4})
-  → {r: 3}  matches make-sphere  by field name  →  sphere{r: 3}
-  → {w: 4}  matches make-cube    by field name  →  cube{w: 4}
+stir(sphere, cube, {r: 3}, {w: 4})
+  → {r: 3}  matches sphere  by field name  →  sphere{r: 3}
+  → {w: 4}  matches cube    by field name  →  cube{w: 4}
   → result: stir(sphere, cube)  →  union(sphere, cube)
 ```
 
@@ -73,7 +73,7 @@ scalar may be accepted where a single-field record is expected, when there is ex
 one unambiguous destination in the bag. The scalar is implicitly wrapped:
 
 ```
-3  →  {r: 3}    when the only compatible constructor is make-sphere
+3  →  {r: 3}    when the only compatible constructor is sphere
 ```
 
 This is syntactic sugar only; the underlying routing is always by field name.
@@ -277,7 +277,7 @@ stir(fix(menger_step), cube{size: 1})
   → fix(menger_step)(cube{size: 1})
   → solid
 
-stir(make-sphere, make-cube, {r: 3}, {w: 4})
+stir(sphere, cube, {r: 3}, {w: 4})
   → routing fires by field name
   → stir(sphere{r:3}, cube{w:4})
   → two solids remain → union(sphere{r:3}, cube{w:4})
