@@ -347,6 +347,19 @@ html, body {
   margin-bottom: 4px;
 }
 
+.drop-zone--gap {
+  min-height: 8px;
+  border: 2px dashed transparent;
+  margin-bottom: 2px;
+  transition: min-height 0.1s, border-color 0.1s, background 0.1s;
+}
+
+.drop-zone--gap.drop-zone--active {
+  min-height: 28px;
+  border-color: #e94560;
+  background: rgba(233,69,96,0.15);
+}
+
 .drop-zone--active {
   border-color: #e94560;
   background: rgba(233,69,96,0.1);
@@ -378,6 +391,16 @@ html, body {
 }
 .block--fuse, .palette-item--fuse {
   background: #cc7700;
+}
+.block--intersect, .palette-item--intersect {
+  background: #3a7;
+}
+.block--anti, .palette-item--anti {
+  background: #c44;
+  border-style: dashed;
+}
+.block--complement, .palette-item--complement {
+  background: #668;
 }
 /* ---- Drag ghost ---- */
 
