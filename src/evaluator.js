@@ -5,12 +5,15 @@ import { meshField } from './surface-nets.js';
 // Consumes the structured AST from codegen.js, knows nothing about blocks.
 
 const COLOR_MAP = {
-  red:   0xff4444,
-  blue:  0x4488ff,
-  green: 0x44cc44,
+  gray:   0xaaaaaa,
+  red:    0xff4444,
+  blue:   0x4488ff,
+  green:  0x44cc44,
   yellow: 0xffcc00,
   orange: 0xff8800
 };
+
+const DEFAULT_COLOR = 'gray';
 
 export function evaluate(ast) {
   if (!ast) return new THREE.Group();
@@ -29,13 +32,13 @@ function evalNode(node) {
       const p = node[1];
       const s = p.size || 20;
       const geo = new THREE.BoxGeometry(s, s, s);
-      const mat = new THREE.MeshStandardMaterial({ color: COLOR_MAP[p.color] || 0xcccccc });
+      const mat = new THREE.MeshStandardMaterial({ color: COLOR_MAP[DEFAULT_COLOR] });
       return new THREE.Mesh(geo, mat);
     }
     case 'sphere': {
       const p = node[1];
       const geo = new THREE.SphereGeometry(p.radius || 15, 32, 32);
-      const mat = new THREE.MeshStandardMaterial({ color: COLOR_MAP[p.color] || 0xcccccc });
+      const mat = new THREE.MeshStandardMaterial({ color: COLOR_MAP[DEFAULT_COLOR] });
       return new THREE.Mesh(geo, mat);
     }
     case 'cylinder': {
@@ -43,7 +46,7 @@ function evalNode(node) {
       const r = p.radius || 10;
       const h = p.height || 30;
       const geo = new THREE.CylinderGeometry(r, r, h, 32);
-      const mat = new THREE.MeshStandardMaterial({ color: COLOR_MAP[p.color] || 0xcccccc });
+      const mat = new THREE.MeshStandardMaterial({ color: COLOR_MAP[DEFAULT_COLOR] });
       return new THREE.Mesh(geo, mat);
     }
     case 'translate': {
@@ -57,6 +60,37 @@ function evalNode(node) {
         if (obj) group.add(obj);
       }
       return group;
+    }
+    case 'paint': {
+      const p = node[1];
+      const color = COLOR_MAP[p.color] || COLOR_MAP[DEFAULT_COLOR];
+      const children = node.slice(2);
+      if (children.length === 0) return null;
+      const group = new THREE.Group();
+      for (const child of children) {
+        const obj = evalNode(child);
+        if (obj) {
+          paintObject(obj, color);
+          group.add(obj);
+        }
+      }
+      return group.children.length === 1 ? group.children[0] : group;
+    }
+    case 'recolor': {
+      const p = node[1];
+      const fromColor = COLOR_MAP[p.from] || COLOR_MAP[DEFAULT_COLOR];
+      const toColor = COLOR_MAP[p.to] || COLOR_MAP[DEFAULT_COLOR];
+      const children = node.slice(2);
+      if (children.length === 0) return null;
+      const group = new THREE.Group();
+      for (const child of children) {
+        const obj = evalNode(child);
+        if (obj) {
+          recolorObject(obj, fromColor, toColor);
+          group.add(obj);
+        }
+      }
+      return group.children.length === 1 ? group.children[0] : group;
     }
     case 'union': {
       const children = node.slice(1);
@@ -78,8 +112,10 @@ function evalNode(node) {
       const combined = softmin(fields, k);
       const bounds = estimateBounds(node);
       const geo = meshField(combined, bounds, res);
-      const color = COLOR_MAP[p.color] || 0xffaa22;
-      const mat = new THREE.MeshStandardMaterial({ color, side: THREE.DoubleSide });
+      const mat = new THREE.MeshStandardMaterial({
+        color: COLOR_MAP[DEFAULT_COLOR],
+        side: THREE.DoubleSide
+      });
       return new THREE.Mesh(geo, mat);
     }
     default:
@@ -87,7 +123,30 @@ function evalNode(node) {
   }
 }
 
+// Traverse a Three.js object and set all mesh materials to the given color
+function paintObject(obj, color) {
+  obj.traverse(child => {
+    if (child.isMesh && child.material) {
+      child.material = child.material.clone();
+      child.material.color.setHex(color);
+    }
+  });
+}
+
+// Traverse and swap materials matching fromColor to toColor
+function recolorObject(obj, fromColor, toColor) {
+  obj.traverse(child => {
+    if (child.isMesh && child.material) {
+      if (child.material.color.getHex() === fromColor) {
+        child.material = child.material.clone();
+        child.material.color.setHex(toColor);
+      }
+    }
+  });
+}
+
 // ---- SDF evaluation: AST → field function (x,y,z) => distance ----
+// Color nodes (paint, recolor) are transparent to field evaluation.
 
 export function evalField(node) {
   const type = node[0];
@@ -128,12 +187,24 @@ export function evalField(node) {
         const child = evalField(children[0]);
         return (x, y, z) => child(x - tx, y - ty, z - tz);
       }
-      // Multiple children under translate: implicit union
       const fields = children.map(c => evalField(c));
       return (x, y, z) => {
         const px = x - tx, py = y - ty, pz = z - tz;
         let d = fields[0](px, py, pz);
         for (let i = 1; i < fields.length; i++) d = Math.min(d, fields[i](px, py, pz));
+        return d;
+      };
+    }
+    case 'paint':
+    case 'recolor': {
+      // Color is irrelevant in field mode — pass through to child
+      const children = node.slice(2);
+      if (children.length === 0) return () => 1e10;
+      if (children.length === 1) return evalField(children[0]);
+      const fields = children.map(c => evalField(c));
+      return (x, y, z) => {
+        let d = fields[0](x, y, z);
+        for (let i = 1; i < fields.length; i++) d = Math.min(d, fields[i](x, y, z));
         return d;
       };
     }
@@ -166,9 +237,7 @@ export function evalField(node) {
 function softmin(fields, k) {
   if (fields.length === 1) return fields[0];
   return (x, y, z) => {
-    // Compute -f_i / k for each child
     const neg = fields.map(f => -f(x, y, z) / k);
-    // Shifted log-sum-exp for numerical stability
     const maxNeg = Math.max(...neg);
     let sum = 0;
     for (const v of neg) sum += Math.exp(v - maxNeg);
@@ -180,7 +249,7 @@ function softmin(fields, k) {
 
 export function estimateBounds(node, offset = [0, 0, 0]) {
   const type = node[0];
-  const pad = 5; // extra padding
+  const pad = 5;
 
   switch (type) {
     case 'sphere': {
@@ -211,13 +280,17 @@ export function estimateBounds(node, offset = [0, 0, 0]) {
       const children = node.slice(2);
       return mergeBounds(children.map(c => estimateBounds(c, newOff)));
     }
+    case 'paint':
+    case 'recolor': {
+      const children = node.slice(2);
+      return mergeBounds(children.map(c => estimateBounds(c, offset)));
+    }
     case 'union':
     case 'smooth-union': {
       const start = type === 'smooth-union' ? 2 : 1;
       const children = node.slice(start);
       const merged = mergeBounds(children.map(c => estimateBounds(c, offset)));
       if (type === 'smooth-union') {
-        // Extra padding for blend radius
         const k = (node[1].k || 5);
         merged.min = merged.min.map(v => v - k);
         merged.max = merged.max.map(v => v + k);

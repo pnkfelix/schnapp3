@@ -1,11 +1,14 @@
 // S-expression text → AST (same format as codegen.js output)
 //
 // Grammar:
-//   (cube SIZE :color "COLOR")
-//   (sphere RADIUS :color "COLOR")
-//   (cylinder RADIUS HEIGHT :color "COLOR")
+//   (cube SIZE)
+//   (sphere RADIUS)
+//   (cylinder RADIUS HEIGHT)
+//   (paint :color "COLOR" CHILD)
+//   (recolor :from "COLOR" :to "COLOR" CHILD)
 //   (translate X Y Z CHILD...)
 //   (union CHILD...)
+//   (smooth-union :k K CHILD...)
 
 export function parseSExpr(text) {
   const tokens = tokenize(text);
@@ -26,6 +29,8 @@ export function parseSExpr(text) {
       case 'sphere': return parseSphere();
       case 'cylinder': return parseCylinder();
       case 'translate': return parseTranslate();
+      case 'paint': return parsePaint();
+      case 'recolor': return parseRecolor();
       case 'union': return parseUnion();
       case 'smooth-union': return parseSmoothUnion();
       default: {
@@ -44,8 +49,8 @@ export function parseSExpr(text) {
     const args = {};
     while (peek() && peek().startsWith(':')) {
       const kw = next().slice(1); // strip ':'
-      if (kw === 'color') {
-        args.color = parseStringOrIdent();
+      if (kw === 'color' || kw === 'from' || kw === 'to') {
+        args[kw] = parseStringOrIdent();
       } else if (kw === 'k') {
         args.k = parseNumber();
       }
@@ -63,31 +68,45 @@ export function parseSExpr(text) {
 
   function parseCube() {
     const size = parseNumber();
-    const kw = parseKeywordArgs();
+    parseKeywordArgs(); // consume any trailing keywords (backwards compat)
     next(); // )
-    return ['cube', { size, color: kw.color || 'blue' }];
+    return ['cube', { size }];
   }
 
   function parseSphere() {
     const radius = parseNumber();
-    const kw = parseKeywordArgs();
+    parseKeywordArgs();
     next(); // )
-    return ['sphere', { radius, color: kw.color || 'blue' }];
+    return ['sphere', { radius }];
   }
 
   function parseCylinder() {
     const radius = parseNumber();
     const height = parseNumber();
-    const kw = parseKeywordArgs();
+    parseKeywordArgs();
     next(); // )
-    return ['cylinder', { radius, height, color: kw.color || 'green' }];
+    return ['cylinder', { radius, height }];
+  }
+
+  function parsePaint() {
+    const kw = parseKeywordArgs();
+    const children = parseChildren();
+    next(); // )
+    return ['paint', { color: kw.color || 'red' }, ...children];
+  }
+
+  function parseRecolor() {
+    const kw = parseKeywordArgs();
+    const children = parseChildren();
+    next(); // )
+    return ['recolor', { from: kw.from || 'gray', to: kw.to || 'red' }, ...children];
   }
 
   function parseSmoothUnion() {
     const kw = parseKeywordArgs();
     const children = parseChildren();
     next(); // )
-    return ['smooth-union', { k: kw.k || 5, color: kw.color || 'orange' }, ...children];
+    return ['smooth-union', { k: kw.k || 5 }, ...children];
   }
 
   function parseTranslate() {
@@ -151,7 +170,7 @@ function tokenize(text) {
       continue;
     }
 
-    // Keyword (:color)
+    // Keyword (:color, :from, :to, :k)
     if (text[i] === ':') {
       let j = i + 1;
       while (j < text.length && /[a-zA-Z0-9_-]/.test(text[j])) j++;

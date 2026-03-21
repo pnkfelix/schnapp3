@@ -340,6 +340,12 @@ html, body {
 .block--translate, .palette-item--translate {
   background: #813d9c;
 }
+.block--paint, .palette-item--paint {
+  background: #c44;
+}
+.block--recolor, .palette-item--recolor {
+  background: #944;
+}
 .block--union, .palette-item--union {
   background: #555;
 }

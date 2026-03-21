@@ -1,12 +1,13 @@
 // ---- Block type definitions ----
 
+const ALL_COLORS = ['gray', 'red', 'blue', 'green', 'orange', 'yellow'];
+
 export const BLOCK_DEFS = {
   cube: {
     label: 'Cube',
     category: 'primitive',
     params: [
-      { name: 'size', type: 'number', default: 20, min: 1, max: 200 },
-      { name: 'color', type: 'color', default: 'red', options: ['red', 'blue', 'green'] }
+      { name: 'size', type: 'number', default: 20, min: 1, max: 200 }
     ],
     maxChildren: 0
   },
@@ -14,8 +15,7 @@ export const BLOCK_DEFS = {
     label: 'Sphere',
     category: 'primitive',
     params: [
-      { name: 'radius', type: 'number', default: 15, min: 1, max: 200 },
-      { name: 'color', type: 'color', default: 'blue', options: ['red', 'blue', 'green'] }
+      { name: 'radius', type: 'number', default: 15, min: 1, max: 200 }
     ],
     maxChildren: 0
   },
@@ -24,8 +24,7 @@ export const BLOCK_DEFS = {
     category: 'primitive',
     params: [
       { name: 'radius', type: 'number', default: 10, min: 1, max: 200 },
-      { name: 'height', type: 'number', default: 30, min: 1, max: 200 },
-      { name: 'color', type: 'color', default: 'green', options: ['red', 'blue', 'green'] }
+      { name: 'height', type: 'number', default: 30, min: 1, max: 200 }
     ],
     maxChildren: 0
   },
@@ -39,6 +38,23 @@ export const BLOCK_DEFS = {
     ],
     maxChildren: 1
   },
+  paint: {
+    label: 'Paint',
+    category: 'appearance',
+    params: [
+      { name: 'color', type: 'color', default: 'red', options: ALL_COLORS }
+    ],
+    maxChildren: 1
+  },
+  recolor: {
+    label: 'Recolor',
+    category: 'appearance',
+    params: [
+      { name: 'from', type: 'color', default: 'gray', options: ALL_COLORS },
+      { name: 'to', type: 'color', default: 'red', options: ALL_COLORS }
+    ],
+    maxChildren: 1
+  },
   union: {
     label: 'Union',
     category: 'combine',
@@ -49,8 +65,7 @@ export const BLOCK_DEFS = {
     label: 'Smooth Union',
     category: 'combine',
     params: [
-      { name: 'k', type: 'number', default: 5, min: 0.1, max: 50 },
-      { name: 'color', type: 'color', default: 'orange', options: ['red', 'blue', 'green', 'orange', 'yellow'] }
+      { name: 'k', type: 'number', default: 5, min: 0.1, max: 50 }
     ],
     maxChildren: Infinity
   },

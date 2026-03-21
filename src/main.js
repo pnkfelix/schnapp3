@@ -176,9 +176,11 @@ codeOutput.addEventListener('input', () => {
 
 // Default scene as S-expr
 const DEFAULT_MODEL = `(union
-  (translate 15 0 0
-    (cube 20 :color "red"))
-  (sphere 15 :color "blue"))`;
+  (paint :color "red"
+    (translate 15 0 0
+      (cube 20)))
+  (paint :color "blue"
+    (sphere 15)))`;
 
 function loadModel(sexpr) {
   codeEditedManually = false;

@@ -2,7 +2,8 @@ import { BLOCK_DEFS } from './blocks.js';
 
 // Block tree → structured S-expression AST
 // AST format: [type, params-object, ...children]
-//   ["cube", { size: 20, color: "red" }]
+//   ["cube", { size: 20 }]
+//   ["paint", { color: "red" }, child]
 //   ["translate", { x: 10, y: 0, z: 0 }, childExpr]
 //   ["union", child1, child2]
 
@@ -28,14 +29,12 @@ function blockToAST(block) {
   // Container: [type, params (if any), ...children]
   const childExprs = block.children.map(blockToAST);
 
-  if (block.type === 'translate') {
-    return ['translate', params, ...childExprs];
+  if (block.type === 'union') {
+    // union: no params, just children
+    return ['union', ...childExprs];
   }
-  if (block.type === 'smooth-union') {
-    return ['smooth-union', params, ...childExprs];
-  }
-  // union: no params, just children
-  return ['union', ...childExprs];
+  // All other containers have params: translate, paint, recolor, smooth-union
+  return [block.type, params, ...childExprs];
 }
 
 // S-expression AST → pretty-printed string
@@ -52,15 +51,15 @@ function formatNode(node, indent) {
   switch (type) {
     case 'cube': {
       const p = node[1];
-      return `${pad}(cube ${p.size} :color "${p.color}")`;
+      return `${pad}(cube ${p.size})`;
     }
     case 'sphere': {
       const p = node[1];
-      return `${pad}(sphere ${p.radius} :color "${p.color}")`;
+      return `${pad}(sphere ${p.radius})`;
     }
     case 'cylinder': {
       const p = node[1];
-      return `${pad}(cylinder ${p.radius} ${p.height} :color "${p.color}")`;
+      return `${pad}(cylinder ${p.radius} ${p.height})`;
     }
     case 'translate': {
       const p = node[1];
@@ -70,6 +69,24 @@ function formatNode(node, indent) {
       }
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
       return `${pad}(translate ${p.x} ${p.y} ${p.z}\n${childStrs})`;
+    }
+    case 'paint': {
+      const p = node[1];
+      const children = node.slice(2);
+      if (children.length === 0) {
+        return `${pad}(paint :color "${p.color}")`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(paint :color "${p.color}"\n${childStrs})`;
+    }
+    case 'recolor': {
+      const p = node[1];
+      const children = node.slice(2);
+      if (children.length === 0) {
+        return `${pad}(recolor :from "${p.from}" :to "${p.to}")`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(recolor :from "${p.from}" :to "${p.to}"\n${childStrs})`;
     }
     case 'union': {
       const children = node.slice(1);
@@ -83,10 +100,10 @@ function formatNode(node, indent) {
       const p = node[1];
       const children = node.slice(2);
       if (children.length === 0) {
-        return `${pad}(smooth-union :k ${p.k} :color "${p.color}")`;
+        return `${pad}(smooth-union :k ${p.k})`;
       }
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
-      return `${pad}(smooth-union :k ${p.k} :color "${p.color}"\n${childStrs})`;
+      return `${pad}(smooth-union :k ${p.k}\n${childStrs})`;
     }
     default:
       return `${pad}(${type})`;
