@@ -37,6 +37,7 @@ const COMMANDS = [
   { text: 'show 3d', hint: '3D preview only' },
   { text: 'show code', hint: 'code preview only' },
   { text: 'show code 3d', hint: 'code + 3D preview' },
+  { text: 'reset', hint: 'restore default model' },
 ];
 
 const commandInput = document.getElementById('command-input');
@@ -86,6 +87,12 @@ function executeCommand(text) {
       return;
     }
   }
+  if (parts[0] === 'reset') {
+    loadDefaultModel();
+    commandInput.value = '';
+    commandInput.blur();
+    return;
+  }
   // Unknown command — flash the input red briefly
   commandInput.style.borderColor = '#e94560';
   setTimeout(() => { commandInput.style.borderColor = ''; }, 500);
@@ -131,11 +138,13 @@ function runPipeline() {
   const roots = getRootBlocks();
   const ast = generateAST(roots);
 
-  // Update code preview
-  codeOutput.value = ast ? formatSExpr(ast) : '(empty)';
+  const sexpr = ast ? formatSExpr(ast) : '(empty)';
+  codeOutput.value = sexpr;
   codeOutput.style.color = '#a0d0a0';
 
-  // Update 3D viewport
+  // Persist to localStorage
+  try { localStorage.setItem('schnapp3_model', sexpr); } catch (e) {}
+
   const group = evaluate(ast);
   viewport.setContent(group);
 }
@@ -157,6 +166,7 @@ codeOutput.addEventListener('input', () => {
       renderWorkspace();
       const group = evaluate(ast);
       viewport.setContent(group);
+      try { localStorage.setItem('schnapp3_model', codeOutput.value); } catch (e) {}
     }
     codeOutput.style.color = '#a0d0a0';
   } catch (e) {
@@ -164,13 +174,27 @@ codeOutput.addEventListener('input', () => {
   }
 });
 
-// Seed default scene: union of translated red cube + blue sphere
-const union = addBlockToRoot('union');
-const translate = addBlockAsChild('translate', union.id);
-updateParam(translate.id, 'x', 15);
-const cube = addBlockAsChild('cube', translate.id);
-updateParam(cube.id, 'color', 'red');
-addBlockAsChild('sphere', union.id);
+// Default scene as S-expr
+const DEFAULT_MODEL = `(union
+  (translate 15 0 0
+    (cube 20 :color "red"))
+  (sphere 15 :color "blue"))`;
 
-renderWorkspace();
-runPipeline();
+function loadModel(sexpr) {
+  codeEditedManually = false;
+  const ast = parseSExpr(sexpr);
+  if (ast) {
+    replaceFromAST(ast);
+    renderWorkspace();
+    runPipeline();
+  }
+}
+
+function loadDefaultModel() {
+  try { localStorage.removeItem('schnapp3_model'); } catch (e) {}
+  loadModel(DEFAULT_MODEL);
+}
+
+// Load saved model or default
+const saved = (() => { try { return localStorage.getItem('schnapp3_model'); } catch (e) { return null; } })();
+loadModel(saved || DEFAULT_MODEL);
