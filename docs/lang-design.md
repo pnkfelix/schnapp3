@@ -437,8 +437,8 @@ The argument name **is** the tag — `step` vs `self_step` tells `grow` which
 evaluation strategy to use. No wrapper constructors needed; this is just field-name
 routing, the same mechanism the rest of the language uses.
 
-Parameters (all except `seed` have defaults):
-- `seed`: initial value of type T (required)
+Parameters (all have defaults except `step`/`self_step`):
+- `seed`: initial value of type T (default: empty solid)
 - `step` or `self_step`: exactly one must be provided (both = error, neither = error)
   - `step: T -> T` — linear iteration; receives previous value, produces next
   - `self_step: (T -> T) -> T -> T` — tree recursion; receives the recursive call
