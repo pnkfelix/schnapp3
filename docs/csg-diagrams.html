@@ -139,42 +139,70 @@ Anti-solid occupies the same region as B but has charge −1.</p>
 
 <!-- ═══════════════════════════════════════════════════════ -->
 <h2>3. complement(B) — flipped geometry, same charge</h2>
-<p><code>complement</code> negates the distance field: inside↔outside swap.
-The result is an infinite solid with a hole at B. The hole is where B used to be solid.</p>
+<p><code>complement</code> negates the distance field of B: inside↔outside swap.
+The result is an infinite solid with a hole at B. A is not involved here at all.</p>
 
 <div class="row">
 <figure>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 130" width="264" height="156">
-  <!-- infinite solid (rect) with B punched out via even-odd rule -->
+  <!-- infinite solid with B punched out via even-odd rule -->
   <rect width="220" height="130" fill="#e4e4e4"/>
   <path fill-rule="evenodd" fill="#4488cc"
     d="M0,0 H220 V130 H0 Z
        M138,65 m-48,0 a48,48 0 1,0 96,0 a48,48 0 1,0 -96,0"/>
-  <!-- dashed reference outline for B -->
+  <!-- B outline dashed: B is the input to complement -->
   <circle cx="138" cy="65" r="48" fill="none" stroke="white" stroke-width="1.5" stroke-dasharray="5 3"/>
-  <!-- A outline for reference -->
-  <circle cx="82" cy="65" r="48" fill="none" stroke="#224488" stroke-width="1.5" stroke-dasharray="5 3"/>
   <!-- labels -->
-  <text x="35"  y="30" font-size="9" font-family="monospace" fill="white">+1 (solid, infinite)</text>
-  <text x="138" y="67" text-anchor="middle" font-size="9" font-family="monospace" fill="#aaa">0 (hole)</text>
-  <text x="82" y="22" text-anchor="middle" font-size="9" font-family="monospace" fill="#6699cc">A (ref)</text>
-  <text x="138" y="120" text-anchor="middle" font-size="9" font-family="monospace" fill="white">B (ref)</text>
+  <text x="38"  y="28" font-size="9" font-family="monospace" fill="white">+1  (solid, infinite extent)</text>
+  <text x="138" y="62" text-anchor="middle" font-size="9" font-family="monospace" fill="#bbb">0</text>
+  <text x="138" y="74" text-anchor="middle" font-size="8" font-family="monospace" fill="#bbb">(hole)</text>
+  <text x="155" y="118" text-anchor="middle" font-size="9" font-family="monospace" fill="white">B</text>
 </svg>
 <figcaption>
-  <code>complement(B)</code>:<br>
-  infinite solid with hole at B.<br>
-  Both outlines are reference-only (dashed).
+  <code>complement(B)</code> alone.<br>
+  Infinite solid; hole where B was.<br>
+  A is not part of this picture.
 </figcaption>
 </figure>
 </div>
 
 
 <!-- ═══════════════════════════════════════════════════════ -->
-<h2>4. intersect(A, complement(B)) = A − B</h2>
-<p><code>intersect</code> keeps only points inside <em>both</em> operands.
-Inside A and inside complement(B) means: inside A and outside B — the left crescent.</p>
+<h2>4. Combining A with complement(B): union vs intersect</h2>
+<p>Now we introduce A. The two operators give very different results —
+<code>union</code> expands outward, <code>intersect</code> clips inward.</p>
 
 <div class="row">
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 130" width="264" height="156">
+  <defs>
+    <clipPath id="u-cA"><circle cx="82" cy="65" r="48"/></clipPath>
+    <clipPath id="u-cB"><circle cx="138" cy="65" r="48"/></clipPath>
+  </defs>
+  <rect width="220" height="130" fill="#e4e4e4"/>
+  <!-- complement(B): solid everywhere outside B -->
+  <path fill-rule="evenodd" fill="#4488cc"
+    d="M0,0 H220 V130 H0 Z
+       M138,65 m-48,0 a48,48 0 1,0 96,0 a48,48 0 1,0 -96,0"/>
+  <!-- A∩B: A fills in its portion of the hole (union picks the max) -->
+  <g clip-path="url(#u-cA)">
+    <rect width="220" height="130" fill="#4488cc" clip-path="url(#u-cB)"/>
+  </g>
+  <!-- outlines -->
+  <circle cx="82"  cy="65" r="48" fill="none" stroke="#224488" stroke-width="2"/>
+  <circle cx="138" cy="65" r="48" fill="none" stroke="#888"    stroke-width="1.5" stroke-dasharray="5 3"/>
+  <!-- label the one empty region -->
+  <text x="163" y="64" text-anchor="middle" font-size="9" font-family="monospace" fill="#888">B−A</text>
+  <text x="163" y="75" text-anchor="middle" font-size="8" font-family="monospace" fill="#888">empty</text>
+  <text x="62"  y="22" font-size="14" font-family="sans-serif" fill="#224488" font-weight="bold">A</text>
+  <text x="155" y="118" text-anchor="middle" font-size="9" font-family="monospace" fill="#888">B</text>
+</svg>
+<figcaption>
+  <code>union(A, complement(B))</code><br>
+  Almost everything is solid. Only B−A stays empty — the part of the hole that A doesn't cover.
+</figcaption>
+</figure>
+
 <figure>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 130" width="264" height="156">
   <defs>
@@ -193,37 +221,20 @@ Inside A and inside complement(B) means: inside A and outside B — the left cre
   <!-- label -->
   <text x="54" y="64" text-anchor="middle" font-size="9" font-family="monospace" fill="white">A−B</text>
   <text x="54" y="75" text-anchor="middle" font-size="8" font-family="monospace" fill="white">solid</text>
-  <text x="82" y="22" text-anchor="middle" font-size="9" font-family="monospace" fill="#224488">A</text>
-  <text x="138" y="120" text-anchor="middle" font-size="9" font-family="monospace" fill="#888">B (dashed)</text>
+  <text x="62"  y="22" font-size="14" font-family="sans-serif" fill="#224488" font-weight="bold">A</text>
+  <text x="155" y="118" text-anchor="middle" font-size="9" font-family="monospace" fill="#888">B</text>
 </svg>
 <figcaption>
   <code>intersect(A, complement(B))</code><br>
-  = A − B, solid (+1).<br>
-  Geometry: A's crescent. Charge: +1×+1 = +1.
+  = A − B. Only the A−B crescent survives: must be inside A <em>and</em> inside complement(B) (= outside B).
+  Charge: +1×+1 = +1.
 </figcaption>
 </figure>
-
-<figure>
-<!-- arithmetic breakdown -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 210 140" width="210" height="140">
-  <rect width="210" height="140" fill="#f8f8f8" rx="4"/>
-  <text x="12" y="20" font-size="9" font-family="monospace" fill="#555">region             p_A   p_¬B   result</text>
-  <line x1="10" y1="25" x2="200" y2="25" stroke="#ddd" stroke-width="1"/>
-
-  <text x="12" y="42" font-size="9" font-family="monospace" fill="#333">inside A, outside B</text>
-  <text x="12" y="54" font-size="9" font-family="monospace" fill="#224488">  +1 × +1 = +1   solid  ✓</text>
-
-  <line x1="10" y1="62" x2="200" y2="62" stroke="#eee" stroke-width="1"/>
-  <text x="12" y="76" font-size="9" font-family="monospace" fill="#333">inside A and B</text>
-  <text x="12" y="88" font-size="9" font-family="monospace" fill="#888">  +1 ×  0 =  0   empty  ✓</text>
-
-  <line x1="10" y1="96" x2="200" y2="96" stroke="#eee" stroke-width="1"/>
-  <text x="12" y="110" font-size="9" font-family="monospace" fill="#333">outside A (anywhere)</text>
-  <text x="12" y="122" font-size="9" font-family="monospace" fill="#888">   0 × ±1 =  0   empty  ✓</text>
-</svg>
-<figcaption>Polarity arithmetic at each region.<br>p_¬B = +1 outside B (the infinite solid part), 0 inside B (the hole).</figcaption>
-</figure>
 </div>
+
+<p>The contrast: <code>union</code> with an infinite solid gives you almost the whole plane;
+<code>intersect</code> clips it back down to the finite extent of A, minus B.
+This is why <code>intersect</code> is the right operator for scoped subtraction.</p>
 
 
 <!-- ═══════════════════════════════════════════════════════ -->
