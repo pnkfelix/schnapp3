@@ -27,7 +27,7 @@ solid → solid                             shape transformer (e.g. translate, w
 Each rung is a first-class value that can flow through the graph. Higher rungs consume
 lower rungs.
 
-Records are named bundles of *any* typed values — fields can be scalars, solids,
+Records are bundles of *any* named+typed values — fields can be scalars, solids,
 transformers, or other records. Record types with different field names (or different
 field types) are distinct types, even if they have the same number of fields. Field
 names are part of the type. Examples:
