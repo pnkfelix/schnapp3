@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CSG 2D — Solid / Anti-Solid Diagrams</title>
+<style>
+  body {
+    font-family: system-ui, sans-serif;
+    max-width: 820px;
+    margin: 2em auto;
+    padding: 0 1.5em;
+    color: #222;
+    background: #fff;
+  }
+  h1 { font-size: 1.3em; border-bottom: 2px solid #333; padding-bottom: 0.4em; }
+  h2 { font-size: 1.0em; margin: 2em 0 0.4em; color: #333; }
+  p  { font-size: 0.87em; margin: 0.3em 0 0.8em; line-height: 1.5; }
+  code { font-family: monospace; font-size: 0.92em; background: #f4f4f4; padding: 0 3px; border-radius: 2px; }
+  .row { display: flex; gap: 2.5em; flex-wrap: wrap; margin: 0.5em 0 1.5em; align-items: flex-end; }
+  figure { margin: 0; }
+  figcaption { font-size: 0.78em; text-align: center; margin-top: 0.5em; max-width: 200px; line-height: 1.4; }
+  .legend { display: flex; gap: 1.5em; font-size: 0.82em; margin: 0.6em 0 1.5em; flex-wrap: wrap; }
+  .sw { display: inline-block; width: 13px; height: 13px; border: 1px solid #888; border-radius: 2px;
+        vertical-align: middle; margin-right: 4px; }
+  table.matrix { border-collapse: collapse; margin: 0.5em 0; }
+  table.matrix td, table.matrix th { padding: 0.5em 1em; text-align: center; vertical-align: middle; }
+  table.matrix th { font-size: 0.82em; font-weight: normal; color: #555; }
+  table.matrix tr th:first-child { text-align: right; }
+</style>
+</head>
+<body>
+
+<h1>CSG 2D — Solid / Anti-Solid Semantics</h1>
+<p>Two-dimensional cross-sections illustrating CSG operations.
+Replace "disk" with "ball" for ℝ³. All diagrams use the two-component
+<code>(polarity, distance)</code> model.</p>
+
+<div class="legend">
+  <span><span class="sw" style="background:#4488cc"></span> solid (+1)</span>
+  <span><span class="sw" style="background:#cc4444"></span> anti-solid (−1)</span>
+  <span><span class="sw" style="background:#e4e4e4; border-color:#bbb"></span> empty (0)</span>
+</div>
+
+<p>In each diagram: solid outlines mark the boundary of the named shape;
+dashed outlines are reference-only (the shape exists but is not the primary actor).</p>
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2>1. The four regions of A and B</h2>
+<p>Two overlapping solid disks produce four distinct regions.</p>
+
+<div class="row">
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 130" width="264" height="156">
+  <defs>
+    <clipPath id="r1-cA"><circle cx="82" cy="65" r="48"/></clipPath>
+    <clipPath id="r1-cB"><circle cx="138" cy="65" r="48"/></clipPath>
+    <mask id="r1-notB">
+      <rect width="220" height="130" fill="white"/>
+      <circle cx="138" cy="65" r="48" fill="black"/>
+    </mask>
+    <mask id="r1-notA">
+      <rect width="220" height="130" fill="white"/>
+      <circle cx="82" cy="65" r="48" fill="black"/>
+    </mask>
+  </defs>
+  <rect width="220" height="130" fill="#e4e4e4"/>
+  <!-- A only -->
+  <rect width="220" height="130" fill="#4488cc" clip-path="url(#r1-cA)" mask="url(#r1-notB)"/>
+  <!-- A∩B -->
+  <g clip-path="url(#r1-cA)">
+    <rect width="220" height="130" fill="#2266aa" clip-path="url(#r1-cB)"/>
+  </g>
+  <!-- B only -->
+  <rect width="220" height="130" fill="#4488cc" clip-path="url(#r1-cB)" mask="url(#r1-notA)"/>
+  <!-- outlines -->
+  <circle cx="82"  cy="65" r="48" fill="none" stroke="white" stroke-width="2"/>
+  <circle cx="138" cy="65" r="48" fill="none" stroke="white" stroke-width="2"/>
+  <!-- region labels -->
+  <text x="54"  y="67" text-anchor="middle" font-size="9" font-family="monospace" fill="white">A−B</text>
+  <text x="110" y="67" text-anchor="middle" font-size="9" font-family="monospace" fill="white">A∩B</text>
+  <text x="165" y="67" text-anchor="middle" font-size="9" font-family="monospace" fill="white">B−A</text>
+  <text x="200" y="67" text-anchor="middle" font-size="9" font-family="monospace" fill="#aaa">∅</text>
+  <!-- shape labels -->
+  <text x="62" y="22" font-size="15" font-family="sans-serif" fill="white" font-weight="bold">A</text>
+  <text x="150" y="22" font-size="15" font-family="sans-serif" fill="white" font-weight="bold">B</text>
+</svg>
+<figcaption>A and B are both solid (+1).<br>Overlap region is darker blue.</figcaption>
+</figure>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2>2. anti(B) — negative charge, same geometry</h2>
+<p><code>anti</code> flips polarity but leaves the distance field unchanged.
+Anti-solid occupies the same region as B but has charge −1.</p>
+
+<div class="row">
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 130" width="264" height="156">
+  <defs>
+    <clipPath id="r2-cA"><circle cx="82" cy="65" r="48"/></clipPath>
+    <clipPath id="r2-cB"><circle cx="138" cy="65" r="48"/></clipPath>
+    <mask id="r2-notB2">
+      <rect width="220" height="130" fill="white"/>
+      <circle cx="138" cy="65" r="48" fill="black"/>
+    </mask>
+  </defs>
+  <rect width="220" height="130" fill="#e4e4e4"/>
+  <!-- A solid -->
+  <rect width="220" height="130" fill="#4488cc" clip-path="url(#r2-cA)"/>
+  <!-- A∩anti(B): polarity sgn(+1 + -1) = 0 → empty -->
+  <g clip-path="url(#r2-cA)">
+    <rect width="220" height="130" fill="#e4e4e4" clip-path="url(#r2-cB)"/>
+  </g>
+  <!-- anti(B) outside A: polarity = -1 -->
+  <rect width="220" height="130" fill="#cc4444" clip-path="url(#r2-cB)" mask="url(#r2-notB2)"/>
+  <!-- Actually: anti(B) is -1 inside B; union(A, anti(B)) = sgn(+1 + -1) = 0 in overlap -->
+  <!-- Let me redo: show union(solid A, anti(B)) -->
+  <circle cx="82"  cy="65" r="48" fill="none" stroke="#224488" stroke-width="2"/>
+  <circle cx="138" cy="65" r="48" fill="none" stroke="#882222" stroke-width="2"/>
+  <text x="54"  y="67" text-anchor="middle" font-size="9" font-family="monospace" fill="white">+1</text>
+  <text x="110" y="67" text-anchor="middle" font-size="9" font-family="monospace" fill="#888">0</text>
+  <text x="165" y="67" text-anchor="middle" font-size="9" font-family="monospace" fill="white">−1</text>
+  <text x="54"  y="78" text-anchor="middle" font-size="8" font-family="monospace" fill="white">solid</text>
+  <text x="110" y="78" text-anchor="middle" font-size="8" font-family="monospace" fill="#888">empty</text>
+  <text x="165" y="78" text-anchor="middle" font-size="8" font-family="monospace" fill="white">anti</text>
+  <text x="62" y="22" font-size="15" font-family="sans-serif" fill="#224488" font-weight="bold">A</text>
+  <text x="150" y="22" font-size="15" font-family="sans-serif" fill="#882222" font-weight="bold">B</text>
+</svg>
+<figcaption>
+  <code>union(solid A, anti(B))</code><br>
+  Overlap cancels: sgn(+1 + −1) = 0.<br>
+  Anti-residue B−A has charge −1.
+</figcaption>
+</figure>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2>3. complement(B) — flipped geometry, same charge</h2>
+<p><code>complement</code> negates the distance field of B: inside↔outside swap.
+The result is an infinite solid with a hole at B. A is not involved here at all.</p>
+
+<div class="row">
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 130" width="264" height="156">
+  <!-- infinite solid with B punched out via even-odd rule -->
+  <rect width="220" height="130" fill="#e4e4e4"/>
+  <path fill-rule="evenodd" fill="#4488cc"
+    d="M0,0 H220 V130 H0 Z
+       M138,65 m-48,0 a48,48 0 1,0 96,0 a48,48 0 1,0 -96,0"/>
+  <!-- B outline dashed: B is the input to complement -->
+  <circle cx="138" cy="65" r="48" fill="none" stroke="white" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <!-- labels -->
+  <text x="38"  y="28" font-size="9" font-family="monospace" fill="white">+1  (solid, infinite extent)</text>
+  <text x="138" y="62" text-anchor="middle" font-size="9" font-family="monospace" fill="#bbb">0</text>
+  <text x="138" y="74" text-anchor="middle" font-size="8" font-family="monospace" fill="#bbb">(hole)</text>
+  <text x="155" y="118" text-anchor="middle" font-size="9" font-family="monospace" fill="white">B</text>
+</svg>
+<figcaption>
+  <code>complement(B)</code> alone.<br>
+  Infinite solid; hole where B was.<br>
+  A is not part of this picture.
+</figcaption>
+</figure>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2>4. Combining A with complement(B): union vs intersect</h2>
+<p>Now we introduce A. The two operators give very different results —
+<code>union</code> expands outward, <code>intersect</code> clips inward.</p>
+
+<div class="row">
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 130" width="264" height="156">
+  <defs>
+    <clipPath id="u-cA"><circle cx="82" cy="65" r="48"/></clipPath>
+    <clipPath id="u-cB"><circle cx="138" cy="65" r="48"/></clipPath>
+  </defs>
+  <rect width="220" height="130" fill="#e4e4e4"/>
+  <!-- complement(B): solid everywhere outside B -->
+  <path fill-rule="evenodd" fill="#4488cc"
+    d="M0,0 H220 V130 H0 Z
+       M138,65 m-48,0 a48,48 0 1,0 96,0 a48,48 0 1,0 -96,0"/>
+  <!-- A∩B: A fills in its portion of the hole (union picks the max) -->
+  <g clip-path="url(#u-cA)">
+    <rect width="220" height="130" fill="#4488cc" clip-path="url(#u-cB)"/>
+  </g>
+  <!-- outlines -->
+  <circle cx="82"  cy="65" r="48" fill="none" stroke="#224488" stroke-width="2"/>
+  <circle cx="138" cy="65" r="48" fill="none" stroke="#888"    stroke-width="1.5" stroke-dasharray="5 3"/>
+  <!-- label the one empty region -->
+  <text x="163" y="64" text-anchor="middle" font-size="9" font-family="monospace" fill="#888">B−A</text>
+  <text x="163" y="75" text-anchor="middle" font-size="8" font-family="monospace" fill="#888">empty</text>
+  <text x="62"  y="22" font-size="14" font-family="sans-serif" fill="#224488" font-weight="bold">A</text>
+  <text x="155" y="118" text-anchor="middle" font-size="9" font-family="monospace" fill="#888">B</text>
+</svg>
+<figcaption>
+  <code>union(A, complement(B))</code><br>
+  Almost everything is solid. Only B−A stays empty — the part of the hole that A doesn't cover.
+</figcaption>
+</figure>
+
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 130" width="264" height="156">
+  <defs>
+    <clipPath id="r4-cA"><circle cx="82" cy="65" r="48"/></clipPath>
+    <mask id="r4-notB">
+      <rect width="220" height="130" fill="white"/>
+      <circle cx="138" cy="65" r="48" fill="black"/>
+    </mask>
+  </defs>
+  <rect width="220" height="130" fill="#e4e4e4"/>
+  <!-- A ∩ complement(B) = inside A, outside B -->
+  <rect width="220" height="130" fill="#4488cc" clip-path="url(#r4-cA)" mask="url(#r4-notB)"/>
+  <!-- outlines -->
+  <circle cx="82"  cy="65" r="48" fill="none" stroke="#224488" stroke-width="2"/>
+  <circle cx="138" cy="65" r="48" fill="none" stroke="#888"    stroke-width="1.5" stroke-dasharray="5 3"/>
+  <!-- label -->
+  <text x="54" y="64" text-anchor="middle" font-size="9" font-family="monospace" fill="white">A−B</text>
+  <text x="54" y="75" text-anchor="middle" font-size="8" font-family="monospace" fill="white">solid</text>
+  <text x="62"  y="22" font-size="14" font-family="sans-serif" fill="#224488" font-weight="bold">A</text>
+  <text x="155" y="118" text-anchor="middle" font-size="9" font-family="monospace" fill="#888">B</text>
+</svg>
+<figcaption>
+  <code>intersect(A, complement(B))</code><br>
+  = A − B. Only the A−B crescent survives: must be inside A <em>and</em> inside complement(B) (= outside B).
+  Charge: +1×+1 = +1.
+</figcaption>
+</figure>
+</div>
+
+<p>The contrast: <code>union</code> with an infinite solid gives you almost the whole plane;
+<code>intersect</code> clips it back down to the finite extent of A, minus B.
+This is why <code>intersect</code> is the right operator for scoped subtraction.</p>
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2>5. All combinations: {union, intersect} × {A, anti A, compl A, anti compl A} × {B, anti B, compl B, anti compl B}</h2>
+
+<p>Shorthand: <b>cX</b> = complement(X); <b>acX</b> = anti(complement(X)) = complement(anti(X)).
+The four variants of each operand:</p>
+<table style="font-size:0.82em; margin:0.5em 0 1em; border-collapse:collapse">
+<tr>
+  <td style="padding:2px 12px 2px 0"><code>X</code></td>
+  <td>solid disk: polarity +1 inside, 0 outside</td>
+</tr>
+<tr>
+  <td style="padding:2px 12px 2px 0"><code>anti X</code></td>
+  <td>anti-solid disk: polarity −1 inside, 0 outside (same geometry, opposite charge)</td>
+</tr>
+<tr>
+  <td style="padding:2px 12px 2px 0"><code>cX</code></td>
+  <td>infinite solid with hole: polarity +1 outside X, 0 inside X</td>
+</tr>
+<tr>
+  <td style="padding:2px 12px 2px 0"><code>acX</code></td>
+  <td>infinite anti-solid with hole: polarity −1 outside X, 0 inside X</td>
+</tr>
+</table>
+
+<p>Background color shows the <em>outside-both</em> region (infinite extent when non-gray).
+Hover a cell for the formula. Thin circle outlines show A (left) and B (right) for reference.</p>
+
+<h3 style="margin-top:1.5em">union</h3>
+<table id="union-table" class="matrix"></table>
+
+<h3 style="margin-top:1.5em">intersect</h3>
+<table id="intersect-table" class="matrix"></table>
+
+<script>
+let _id = 0;
+
+function clr(p) {
+  return p === 1 ? '#4488cc' : p === -1 ? '#cc4444' : '#e4e4e4';
+}
+
+function makeDiagram(result, title) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const id = 'g' + (_id++);
+  const W = 100, H = 70;
+  const ax = 36, ay = 35, ar = 27;
+  const bx = 64, by = 35, br = 27;
+
+  function el(tag, attrs, children) {
+    const e = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    if (children) children.forEach(c => e.appendChild(c));
+    return e;
+  }
+
+  const defs = el('defs', {}, [
+    el('clipPath', {id: id+'-cA'}, [el('circle', {cx:ax, cy:ay, r:ar})]),
+    el('clipPath', {id: id+'-cB'}, [el('circle', {cx:bx, cy:by, r:br})]),
+    el('mask', {id: id+'-nB'}, [
+      el('rect', {width:W, height:H, fill:'white'}),
+      el('circle', {cx:bx, cy:by, r:br, fill:'black'})
+    ]),
+    el('mask', {id: id+'-nA'}, [
+      el('rect', {width:W, height:H, fill:'white'}),
+      el('circle', {cx:ax, cy:ay, r:ar, fill:'black'})
+    ]),
+  ]);
+
+  // A∩B region via nested clip-path
+  const aib = el('g', {'clip-path': `url(#${id}-cA)`}, [
+    el('rect', {width:W, height:H, fill: clr(result.aib), 'clip-path': `url(#${id}-cB)`})
+  ]);
+
+  const titleEl = document.createElementNS(ns, 'title');
+  titleEl.textContent = title;
+
+  const svg = el('svg', {
+    xmlns: ns, viewBox: `0 0 ${W} ${H}`, width: W, height: H
+  }, [
+    titleEl,
+    defs,
+    // background = outside-both region
+    el('rect', {width:W, height:H, fill: clr(result.out)}),
+    // A−B region
+    el('rect', {width:W, height:H, fill: clr(result.ab),
+      'clip-path': `url(#${id}-cA)`, mask: `url(#${id}-nB)`}),
+    // A∩B region
+    aib,
+    // B−A region
+    el('rect', {width:W, height:H, fill: clr(result.ba),
+      'clip-path': `url(#${id}-cB)`, mask: `url(#${id}-nA)`}),
+    // reference circles
+    el('circle', {cx:ax, cy:ay, r:ar, fill:'none',
+      stroke:'rgba(255,255,255,0.55)', 'stroke-width':'1'}),
+    el('circle', {cx:bx, cy:by, r:br, fill:'none',
+      stroke:'rgba(255,255,255,0.55)', 'stroke-width':'1'}),
+  ]);
+
+  return svg;
+}
+
+const rowLabels = ['A', 'anti A', 'cA', 'acA'];
+const colLabels = ['B', 'anti B', 'cB', 'acB'];
+
+// Polarity vectors for each variant over (A−B, A∩B, B−A, outside-both):
+//   A:   (+1,+1, 0, 0)    anti A: (−1,−1, 0, 0)
+//   cA:  ( 0, 0,+1,+1)    acA:    ( 0, 0,−1,−1)
+//   B:   ( 0,+1,+1, 0)    anti B: ( 0,−1,−1, 0)
+//   cB:  (+1, 0, 0,+1)    acB:    (−1, 0, 0,−1)
+
+const unionData = [
+  // L = A (+1,+1,0,0)
+  [{ab:1,aib:1,ba:1,out:0},  {ab:1,aib:0,ba:-1,out:0},  {ab:1,aib:1,ba:0,out:1},  {ab:0,aib:1,ba:0,out:-1}],
+  // L = anti A (−1,−1,0,0)
+  [{ab:-1,aib:0,ba:1,out:0}, {ab:-1,aib:-1,ba:-1,out:0},{ab:0,aib:-1,ba:0,out:1}, {ab:-1,aib:-1,ba:0,out:-1}],
+  // L = cA (0,0,+1,+1)
+  [{ab:0,aib:1,ba:1,out:1},  {ab:0,aib:-1,ba:0,out:1},  {ab:1,aib:0,ba:1,out:1},  {ab:-1,aib:0,ba:1,out:0}],
+  // L = acA (0,0,−1,−1)
+  [{ab:0,aib:1,ba:0,out:-1}, {ab:0,aib:-1,ba:-1,out:-1},{ab:1,aib:0,ba:-1,out:0}, {ab:-1,aib:0,ba:-1,out:-1}],
+];
+
+const intersectData = [
+  // L = A (+1,+1,0,0)
+  [{ab:0,aib:1,ba:0,out:0},  {ab:0,aib:-1,ba:0,out:0},  {ab:1,aib:0,ba:0,out:0},  {ab:-1,aib:0,ba:0,out:0}],
+  // L = anti A (−1,−1,0,0)
+  [{ab:0,aib:-1,ba:0,out:0}, {ab:0,aib:1,ba:0,out:0},   {ab:-1,aib:0,ba:0,out:0}, {ab:1,aib:0,ba:0,out:0}],
+  // L = cA (0,0,+1,+1)
+  [{ab:0,aib:0,ba:1,out:0},  {ab:0,aib:0,ba:-1,out:0},  {ab:0,aib:0,ba:0,out:1},  {ab:0,aib:0,ba:0,out:-1}],
+  // L = acA (0,0,−1,−1)
+  [{ab:0,aib:0,ba:-1,out:0}, {ab:0,aib:0,ba:1,out:0},   {ab:0,aib:0,ba:0,out:-1}, {ab:0,aib:0,ba:0,out:1}],
+];
+
+function buildTable(data, op, tableEl) {
+  const thead = document.createElement('thead');
+  const hr = document.createElement('tr');
+  const corner = document.createElement('th');
+  corner.textContent = op + '(L, R)  →';
+  hr.appendChild(corner);
+  for (const col of colLabels) {
+    const th = document.createElement('th');
+    th.style.fontSize = '0.8em';
+    th.style.fontWeight = 'normal';
+    th.innerHTML = `<code>${col}</code>`;
+    hr.appendChild(th);
+  }
+  thead.appendChild(hr);
+  tableEl.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  for (let r = 0; r < 4; r++) {
+    const tr = document.createElement('tr');
+    const th = document.createElement('th');
+    th.style.fontSize = '0.8em';
+    th.style.textAlign = 'right';
+    th.innerHTML = `<code>${rowLabels[r]}</code>`;
+    tr.appendChild(th);
+    for (let c = 0; c < 4; c++) {
+      const td = document.createElement('td');
+      td.style.padding = '3px 4px';
+      const formula = `${op}(${rowLabels[r]}, ${colLabels[c]})`;
+      td.appendChild(makeDiagram(data[r][c], formula));
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  tableEl.appendChild(tbody);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  buildTable(unionData,     'union',     document.getElementById('union-table'));
+  buildTable(intersectData, 'intersect', document.getElementById('intersect-table'));
+});
+</script>
+
+</body>
+</html>
