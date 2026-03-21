@@ -235,8 +235,8 @@ export function replaceFromAST(ast) {
     return block;
   }
 
-  // If the top-level is a union or intersect, its children become roots
-  if (ast[0] === 'union' || ast[0] === 'intersect') {
+  // Only implicit union is flattened into root blocks
+  if (ast[0] === 'union') {
     for (const child of ast.slice(1)) {
       if (Array.isArray(child)) {
         const block = buildBlock(child, null);
