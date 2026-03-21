@@ -18,6 +18,7 @@ Throughout this document:
 ```
 scalar                                    number, color
 record<{field: Type, ...}>                named bundle of typed values
+record<{field: scalar, ...}> → solid      primitive constructor (e.g. sphere, cube, cylinder)
 solid                                     a 3D shape / Three.js geometry
 solid → solid                             shape transformer (e.g. translate, warp)
 (solid → solid) → solid → solid           transformer transformer (e.g. menger_step)
