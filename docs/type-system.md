@@ -289,22 +289,28 @@ Inspired by the Chemical Abstract Machine (CHAM, Berry & Boudol 1992): values fl
 in a bag and react according to typed rules. Reactions fire non-deterministically, so
 the system is only meaningful for **confluent** (order-independent) reactions.
 
-### Open question: syntax artifact or runtime value?
+### Runtime values with observable substructure
 
-Currently, bags are **syntax artifacts** — a `union` block with children is a bag in
-the source/block tree, but the evaluator processes it eagerly and produces a `solid`.
-No bag value survives to runtime. The chemical reaction semantics describe how the
-*evaluator* works, not a runtime execution model.
+The tag/provenance design (see [`stir` section](#stir--the-general-reaction-container))
+settles this question in one direction: CSG expressions are **runtime values with
+observable substructure**. `union(3:A, 5:B)` is not eagerly flattened to an opaque
+solid — its children `3:A` and `5:B` remain accessible, because the renderer needs to
+walk the tree to answer "which leaf owns this point?"
 
-If bags become **runtime values**, they are first-class: passable, storable, returnable
-from functions. This is the `build-list` / comprehension territory — `{f(i) for i in
-range}` would produce a runtime `bag<solid>`, and the type ladder would need a new rung.
-The CHAM model implies this direction, since the CHAM "solution" is a live runtime
-multiset.
+This is also how SDF evaluation naturally works: you don't precompute the SDF field
+everywhere, you evaluate it on demand per query point, which means the tree structure
+is inherently preserved during rendering.
 
-The upgrade path is well-defined: bags-as-syntax-artifacts is the current position,
-bags-as-runtime-values is the natural extension when comprehensions become necessary.
-Where we end up on this is an open question.
+The remaining open question is whether bags become **fully first-class runtime values**
+— passable, storable, returnable from functions, and usable in comprehensions:
+
+```
+{f(i) for i in range}  →  runtime bag<solid>  →  type ladder needs a new rung
+```
+
+The CHAM model implies this direction. The upgrade path is well-defined:
+observable-substructure-but-not-first-class is the current position; fully first-class
+bags are the natural extension when comprehensions become necessary.
 
 ### Where bag semantics work
 
@@ -446,6 +452,13 @@ without stripping the tag. The tag is metadata, not a wrapper that must be remov
 pipeline. This is useful: in the UI, hovering over a rendered pixel can report which
 `solid` produced it and list its tags — giving provenance tracking and step-level
 inspection for free, without any extra mechanism.
+
+**`union` and `intersect` do nothing to tags.** They don't need to. The CSG expression
+is an *object graph* — `union(3:A, 5:B)` has `3:A` and `5:B` as children in the tree,
+and that structure is preserved at runtime. When the renderer hits a surface point, it
+walks the graph to find which leaf primitive owns that point (by comparing SDF values),
+and reports that leaf's tags. Provenance is graph traversal at query time, not a
+propagation rule at construction time.
 
 The `tag`/`step` encoding subsumes a dedicated `compose`/`seq` operator: sequential
 composition is just `stir` with numbered steps. No new operator is required.
