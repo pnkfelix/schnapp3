@@ -1,6 +1,6 @@
 // ---- Block type definitions ----
 
-const ALL_COLORS = ['gray', 'red', 'blue', 'green', 'orange', 'yellow'];
+const ALL_COLORS = ['unset', 'gray', 'red', 'blue', 'green', 'orange', 'yellow'];
 
 export const BLOCK_DEFS = {
   cube: {
