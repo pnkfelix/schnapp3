@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CSG 2D — Solid / Anti-Solid Diagrams</title>
+<style>
+  body {
+    font-family: system-ui, sans-serif;
+    max-width: 820px;
+    margin: 2em auto;
+    padding: 0 1.5em;
+    color: #222;
+    background: #fff;
+  }
+  h1 { font-size: 1.3em; border-bottom: 2px solid #333; padding-bottom: 0.4em; }
+  h2 { font-size: 1.0em; margin: 2em 0 0.4em; color: #333; }
+  p  { font-size: 0.87em; margin: 0.3em 0 0.8em; line-height: 1.5; }
+  code { font-family: monospace; font-size: 0.92em; background: #f4f4f4; padding: 0 3px; border-radius: 2px; }
+  .row { display: flex; gap: 2.5em; flex-wrap: wrap; margin: 0.5em 0 1.5em; align-items: flex-end; }
+  figure { margin: 0; }
+  figcaption { font-size: 0.78em; text-align: center; margin-top: 0.5em; max-width: 200px; line-height: 1.4; }
+  .legend { display: flex; gap: 1.5em; font-size: 0.82em; margin: 0.6em 0 1.5em; flex-wrap: wrap; }
+  .sw { display: inline-block; width: 13px; height: 13px; border: 1px solid #888; border-radius: 2px;
+        vertical-align: middle; margin-right: 4px; }
+  table.matrix { border-collapse: collapse; margin: 0.5em 0; }
+  table.matrix td, table.matrix th { padding: 0.5em 1em; text-align: center; vertical-align: middle; }
+  table.matrix th { font-size: 0.82em; font-weight: normal; color: #555; }
+  table.matrix tr th:first-child { text-align: right; }
+</style>
+</head>
+<body>
+
+<h1>CSG 2D — Solid / Anti-Solid Semantics</h1>
+<p>Two-dimensional cross-sections illustrating CSG operations.
+Replace "disk" with "ball" for ℝ³. All diagrams use the two-component
+<code>(polarity, distance)</code> model.</p>
+
+<div class="legend">
+  <span><span class="sw" style="background:#4488cc"></span> solid (+1)</span>
+  <span><span class="sw" style="background:#cc4444"></span> anti-solid (−1)</span>
+  <span><span class="sw" style="background:#e4e4e4; border-color:#bbb"></span> empty (0)</span>
+</div>
+
+<p>In each diagram: solid outlines mark the boundary of the named shape;
+dashed outlines are reference-only (the shape exists but is not the primary actor).</p>
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2>1. The four regions of A and B</h2>
+<p>Two overlapping solid disks produce four distinct regions.</p>
+
+<div class="row">
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 130" width="264" height="156">
+  <defs>
+    <clipPath id="r1-cA"><circle cx="82" cy="65" r="48"/></clipPath>
+    <clipPath id="r1-cB"><circle cx="138" cy="65" r="48"/></clipPath>
+    <mask id="r1-notB">
+      <rect width="220" height="130" fill="white"/>
+      <circle cx="138" cy="65" r="48" fill="black"/>
+    </mask>
+    <mask id="r1-notA">
+      <rect width="220" height="130" fill="white"/>
+      <circle cx="82" cy="65" r="48" fill="black"/>
+    </mask>
+  </defs>
+  <rect width="220" height="130" fill="#e4e4e4"/>
+  <!-- A only -->
+  <rect width="220" height="130" fill="#4488cc" clip-path="url(#r1-cA)" mask="url(#r1-notB)"/>
+  <!-- A∩B -->
+  <g clip-path="url(#r1-cA)">
+    <rect width="220" height="130" fill="#2266aa" clip-path="url(#r1-cB)"/>
+  </g>
+  <!-- B only -->
+  <rect width="220" height="130" fill="#4488cc" clip-path="url(#r1-cB)" mask="url(#r1-notA)"/>
+  <!-- outlines -->
+  <circle cx="82"  cy="65" r="48" fill="none" stroke="white" stroke-width="2"/>
+  <circle cx="138" cy="65" r="48" fill="none" stroke="white" stroke-width="2"/>
+  <!-- region labels -->
+  <text x="54"  y="67" text-anchor="middle" font-size="9" font-family="monospace" fill="white">A−B</text>
+  <text x="110" y="67" text-anchor="middle" font-size="9" font-family="monospace" fill="white">A∩B</text>
+  <text x="165" y="67" text-anchor="middle" font-size="9" font-family="monospace" fill="white">B−A</text>
+  <text x="200" y="67" text-anchor="middle" font-size="9" font-family="monospace" fill="#aaa">∅</text>
+  <!-- shape labels -->
+  <text x="62" y="22" font-size="15" font-family="sans-serif" fill="white" font-weight="bold">A</text>
+  <text x="150" y="22" font-size="15" font-family="sans-serif" fill="white" font-weight="bold">B</text>
+</svg>
+<figcaption>A and B are both solid (+1).<br>Overlap region is darker blue.</figcaption>
+</figure>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2>2. anti(B) — negative charge, same geometry</h2>
+<p><code>anti</code> flips polarity but leaves the distance field unchanged.
+Anti-solid occupies the same region as B but has charge −1.</p>
+
+<div class="row">
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 130" width="264" height="156">
+  <defs>
+    <clipPath id="r2-cA"><circle cx="82" cy="65" r="48"/></clipPath>
+    <clipPath id="r2-cB"><circle cx="138" cy="65" r="48"/></clipPath>
+    <mask id="r2-notB2">
+      <rect width="220" height="130" fill="white"/>
+      <circle cx="138" cy="65" r="48" fill="black"/>
+    </mask>
+  </defs>
+  <rect width="220" height="130" fill="#e4e4e4"/>
+  <!-- A solid -->
+  <rect width="220" height="130" fill="#4488cc" clip-path="url(#r2-cA)"/>
+  <!-- A∩anti(B): polarity sgn(+1 + -1) = 0 → empty -->
+  <g clip-path="url(#r2-cA)">
+    <rect width="220" height="130" fill="#e4e4e4" clip-path="url(#r2-cB)"/>
+  </g>
+  <!-- anti(B) outside A: polarity = -1 -->
+  <rect width="220" height="130" fill="#cc4444" clip-path="url(#r2-cB)" mask="url(#r2-notB2)"/>
+  <!-- Actually: anti(B) is -1 inside B; union(A, anti(B)) = sgn(+1 + -1) = 0 in overlap -->
+  <!-- Let me redo: show union(solid A, anti(B)) -->
+  <circle cx="82"  cy="65" r="48" fill="none" stroke="#224488" stroke-width="2"/>
+  <circle cx="138" cy="65" r="48" fill="none" stroke="#882222" stroke-width="2"/>
+  <text x="54"  y="67" text-anchor="middle" font-size="9" font-family="monospace" fill="white">+1</text>
+  <text x="110" y="67" text-anchor="middle" font-size="9" font-family="monospace" fill="#888">0</text>
+  <text x="165" y="67" text-anchor="middle" font-size="9" font-family="monospace" fill="white">−1</text>
+  <text x="54"  y="78" text-anchor="middle" font-size="8" font-family="monospace" fill="white">solid</text>
+  <text x="110" y="78" text-anchor="middle" font-size="8" font-family="monospace" fill="#888">empty</text>
+  <text x="165" y="78" text-anchor="middle" font-size="8" font-family="monospace" fill="white">anti</text>
+  <text x="62" y="22" font-size="15" font-family="sans-serif" fill="#224488" font-weight="bold">A</text>
+  <text x="150" y="22" font-size="15" font-family="sans-serif" fill="#882222" font-weight="bold">B</text>
+</svg>
+<figcaption>
+  <code>union(solid A, anti(B))</code><br>
+  Overlap cancels: sgn(+1 + −1) = 0.<br>
+  Anti-residue B−A has charge −1.
+</figcaption>
+</figure>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2>3. complement(B) — flipped geometry, same charge</h2>
+<p><code>complement</code> negates the distance field: inside↔outside swap.
+The result is an infinite solid with a hole at B. The hole is where B used to be solid.</p>
+
+<div class="row">
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 130" width="264" height="156">
+  <!-- infinite solid (rect) with B punched out via even-odd rule -->
+  <rect width="220" height="130" fill="#e4e4e4"/>
+  <path fill-rule="evenodd" fill="#4488cc"
+    d="M0,0 H220 V130 H0 Z
+       M138,65 m-48,0 a48,48 0 1,0 96,0 a48,48 0 1,0 -96,0"/>
+  <!-- dashed reference outline for B -->
+  <circle cx="138" cy="65" r="48" fill="none" stroke="white" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <!-- A outline for reference -->
+  <circle cx="82" cy="65" r="48" fill="none" stroke="#224488" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <!-- labels -->
+  <text x="35"  y="30" font-size="9" font-family="monospace" fill="white">+1 (solid, infinite)</text>
+  <text x="138" y="67" text-anchor="middle" font-size="9" font-family="monospace" fill="#aaa">0 (hole)</text>
+  <text x="82" y="22" text-anchor="middle" font-size="9" font-family="monospace" fill="#6699cc">A (ref)</text>
+  <text x="138" y="120" text-anchor="middle" font-size="9" font-family="monospace" fill="white">B (ref)</text>
+</svg>
+<figcaption>
+  <code>complement(B)</code>:<br>
+  infinite solid with hole at B.<br>
+  Both outlines are reference-only (dashed).
+</figcaption>
+</figure>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2>4. intersect(A, complement(B)) = A − B</h2>
+<p><code>intersect</code> keeps only points inside <em>both</em> operands.
+Inside A and inside complement(B) means: inside A and outside B — the left crescent.</p>
+
+<div class="row">
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 130" width="264" height="156">
+  <defs>
+    <clipPath id="r4-cA"><circle cx="82" cy="65" r="48"/></clipPath>
+    <mask id="r4-notB">
+      <rect width="220" height="130" fill="white"/>
+      <circle cx="138" cy="65" r="48" fill="black"/>
+    </mask>
+  </defs>
+  <rect width="220" height="130" fill="#e4e4e4"/>
+  <!-- A ∩ complement(B) = inside A, outside B -->
+  <rect width="220" height="130" fill="#4488cc" clip-path="url(#r4-cA)" mask="url(#r4-notB)"/>
+  <!-- outlines -->
+  <circle cx="82"  cy="65" r="48" fill="none" stroke="#224488" stroke-width="2"/>
+  <circle cx="138" cy="65" r="48" fill="none" stroke="#888"    stroke-width="1.5" stroke-dasharray="5 3"/>
+  <!-- label -->
+  <text x="54" y="64" text-anchor="middle" font-size="9" font-family="monospace" fill="white">A−B</text>
+  <text x="54" y="75" text-anchor="middle" font-size="8" font-family="monospace" fill="white">solid</text>
+  <text x="82" y="22" text-anchor="middle" font-size="9" font-family="monospace" fill="#224488">A</text>
+  <text x="138" y="120" text-anchor="middle" font-size="9" font-family="monospace" fill="#888">B (dashed)</text>
+</svg>
+<figcaption>
+  <code>intersect(A, complement(B))</code><br>
+  = A − B, solid (+1).<br>
+  Geometry: A's crescent. Charge: +1×+1 = +1.
+</figcaption>
+</figure>
+
+<figure>
+<!-- arithmetic breakdown -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 210 140" width="210" height="140">
+  <rect width="210" height="140" fill="#f8f8f8" rx="4"/>
+  <text x="12" y="20" font-size="9" font-family="monospace" fill="#555">region             p_A   p_¬B   result</text>
+  <line x1="10" y1="25" x2="200" y2="25" stroke="#ddd" stroke-width="1"/>
+
+  <text x="12" y="42" font-size="9" font-family="monospace" fill="#333">inside A, outside B</text>
+  <text x="12" y="54" font-size="9" font-family="monospace" fill="#224488">  +1 × +1 = +1   solid  ✓</text>
+
+  <line x1="10" y1="62" x2="200" y2="62" stroke="#eee" stroke-width="1"/>
+  <text x="12" y="76" font-size="9" font-family="monospace" fill="#333">inside A and B</text>
+  <text x="12" y="88" font-size="9" font-family="monospace" fill="#888">  +1 ×  0 =  0   empty  ✓</text>
+
+  <line x1="10" y1="96" x2="200" y2="96" stroke="#eee" stroke-width="1"/>
+  <text x="12" y="110" font-size="9" font-family="monospace" fill="#333">outside A (anywhere)</text>
+  <text x="12" y="122" font-size="9" font-family="monospace" fill="#888">   0 × ±1 =  0   empty  ✓</text>
+</svg>
+<figcaption>Polarity arithmetic at each region.<br>p_¬B = +1 outside B (the infinite solid part), 0 inside B (the hole).</figcaption>
+</figure>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2>5. Charge propagation: the full 2×2 table</h2>
+<p>All four combinations of <code>intersect(±A, complement(±B))</code>.
+Geometry is always A−B (the left crescent). Charge follows the multiplication rule.</p>
+
+<table class="matrix">
+<thead>
+<tr>
+  <th></th>
+  <th><code>complement(solid B)</code><br>hole charge: +1 outside</th>
+  <th><code>complement(anti B)</code><br>hole charge: −1 outside</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <th><code>solid A</code><br>p_A = +1</th>
+  <td>
+    <!-- +1 x +1 = solid -->
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100" width="160" height="100">
+      <defs>
+        <clipPath id="t1-cA"><circle cx="62" cy="50" r="37"/></clipPath>
+        <mask id="t1-notB"><rect width="160" height="100" fill="white"/><circle cx="98" cy="50" r="37" fill="black"/></mask>
+      </defs>
+      <rect width="160" height="100" fill="#e4e4e4"/>
+      <rect width="160" height="100" fill="#4488cc" clip-path="url(#t1-cA)" mask="url(#t1-notB)"/>
+      <circle cx="62" cy="50" r="37" fill="none" stroke="#224488" stroke-width="1.5"/>
+      <circle cx="98" cy="50" r="37" fill="none" stroke="#888"    stroke-width="1"   stroke-dasharray="3 2"/>
+      <text x="38" y="48" text-anchor="middle" font-size="8" font-family="monospace" fill="white">+1×+1</text>
+      <text x="38" y="59" text-anchor="middle" font-size="8" font-family="monospace" fill="white">= +1</text>
+      <text x="38" y="70" text-anchor="middle" font-size="8" font-family="monospace" fill="white">solid</text>
+    </svg>
+    <br><small><code>+1 × +1 = +1</code> — solid A−B</small>
+  </td>
+  <td>
+    <!-- +1 x -1 = anti -->
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100" width="160" height="100">
+      <defs>
+        <clipPath id="t2-cA"><circle cx="62" cy="50" r="37"/></clipPath>
+        <mask id="t2-notB"><rect width="160" height="100" fill="white"/><circle cx="98" cy="50" r="37" fill="black"/></mask>
+      </defs>
+      <rect width="160" height="100" fill="#e4e4e4"/>
+      <rect width="160" height="100" fill="#cc4444" clip-path="url(#t2-cA)" mask="url(#t2-notB)"/>
+      <circle cx="62" cy="50" r="37" fill="none" stroke="#224488" stroke-width="1.5"/>
+      <circle cx="98" cy="50" r="37" fill="none" stroke="#882222" stroke-width="1"   stroke-dasharray="3 2"/>
+      <text x="38" y="48" text-anchor="middle" font-size="8" font-family="monospace" fill="white">+1×−1</text>
+      <text x="38" y="59" text-anchor="middle" font-size="8" font-family="monospace" fill="white">= −1</text>
+      <text x="38" y="70" text-anchor="middle" font-size="8" font-family="monospace" fill="white">anti</text>
+    </svg>
+    <br><small><code>+1 × −1 = −1</code> — anti A−B</small>
+  </td>
+</tr>
+<tr>
+  <th><code>anti A</code><br>p_A = −1</th>
+  <td>
+    <!-- -1 x +1 = anti -->
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100" width="160" height="100">
+      <defs>
+        <clipPath id="t3-cA"><circle cx="62" cy="50" r="37"/></clipPath>
+        <mask id="t3-notB"><rect width="160" height="100" fill="white"/><circle cx="98" cy="50" r="37" fill="black"/></mask>
+      </defs>
+      <rect width="160" height="100" fill="#e4e4e4"/>
+      <rect width="160" height="100" fill="#cc4444" clip-path="url(#t3-cA)" mask="url(#t3-notB)"/>
+      <circle cx="62" cy="50" r="37" fill="none" stroke="#882222" stroke-width="1.5" stroke-dasharray="5 3"/>
+      <circle cx="98" cy="50" r="37" fill="none" stroke="#888"    stroke-width="1"   stroke-dasharray="3 2"/>
+      <text x="38" y="48" text-anchor="middle" font-size="8" font-family="monospace" fill="white">−1×+1</text>
+      <text x="38" y="59" text-anchor="middle" font-size="8" font-family="monospace" fill="white">= −1</text>
+      <text x="38" y="70" text-anchor="middle" font-size="8" font-family="monospace" fill="white">anti</text>
+    </svg>
+    <br><small><code>−1 × +1 = −1</code> — anti A−B</small>
+  </td>
+  <td>
+    <!-- -1 x -1 = solid (two negatives) -->
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100" width="160" height="100">
+      <defs>
+        <clipPath id="t4-cA"><circle cx="62" cy="50" r="37"/></clipPath>
+        <mask id="t4-notB"><rect width="160" height="100" fill="white"/><circle cx="98" cy="50" r="37" fill="black"/></mask>
+      </defs>
+      <rect width="160" height="100" fill="#e4e4e4"/>
+      <rect width="160" height="100" fill="#4488cc" clip-path="url(#t4-cA)" mask="url(#t4-notB)"/>
+      <circle cx="62" cy="50" r="37" fill="none" stroke="#882222" stroke-width="1.5" stroke-dasharray="5 3"/>
+      <circle cx="98" cy="50" r="37" fill="none" stroke="#882222" stroke-width="1"   stroke-dasharray="3 2"/>
+      <text x="38" y="48" text-anchor="middle" font-size="8" font-family="monospace" fill="white">−1×−1</text>
+      <text x="38" y="59" text-anchor="middle" font-size="8" font-family="monospace" fill="white">= +1</text>
+      <text x="38" y="70" text-anchor="middle" font-size="8" font-family="monospace" fill="white">solid</text>
+    </svg>
+    <br><small><code>−1 × −1 = +1</code> — solid A−B (two negatives)</small>
+  </td>
+</tr>
+</tbody>
+</table>
+
+<p>Bottom-right cell: <code>intersect(anti A, complement(anti B))</code> — two anti-solids, one complemented,
+intersected. The anti-anti cancels to solid. Same geometry as A−B in all four cases;
+only the material charge differs.</p>
+
+</body>
+</html>
