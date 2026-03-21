@@ -516,8 +516,13 @@ branching trees, nautilus shells) generally require `fix`.
 
 ## Open Questions
 
-- **Scalar transformers**: math blocks that compute scalars from scalars — same `stir`
-  mechanism, different type rung.
+- **Scalar transformers**: two classes, mirroring the solid operator structure:
+  - *Unary* (`negate`, `1/`, `sin`, `cos`, …): `scalar -> scalar`. Single named
+    argument; field name rarely matters since routing is unambiguous.
+  - *AC multiarg* (`sum`, `product`): `bag<scalar> -> scalar`. Same bag semantics
+    as `union`/`intersect` for solids. Non-AC binary ops fall out for free:
+    `a - b = sum(a, negate(b))`, `a / b = product(a, 1/(b))`.
+  Both fit the existing `stir` mechanism without new machinery.
 - **Transformer composition**: resolved — `tag`/`step` encoding via numeric tags; see `stir` section.
 - **Record literals in blocks**: how does a user construct a `{x: scalar, y: scalar, z: scalar}`
   record value in the UI?
