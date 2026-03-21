@@ -172,6 +172,23 @@ Inspired by the Chemical Abstract Machine (CHAM, Berry & Boudol 1992): values fl
 in a bag and react according to typed rules. Reactions fire non-deterministically, so
 the system is only meaningful for **confluent** (order-independent) reactions.
 
+### Open question: syntax artifact or runtime value?
+
+Currently, bags are **syntax artifacts** — a `union` block with children is a bag in
+the source/block tree, but the evaluator processes it eagerly and produces a `solid`.
+No bag value survives to runtime. The chemical reaction semantics describe how the
+*evaluator* works, not a runtime execution model.
+
+If bags become **runtime values**, they are first-class: passable, storable, returnable
+from functions. This is the `build-list` / comprehension territory — `{f(i) for i in
+range}` would produce a runtime `bag<solid>`, and the type ladder would need a new rung.
+The CHAM model implies this direction, since the CHAM "solution" is a live runtime
+multiset.
+
+The upgrade path is well-defined: bags-as-syntax-artifacts is the current position,
+bags-as-runtime-values is the natural extension when comprehensions become necessary.
+Where we end up on this is an open question.
+
 ### Where bag semantics work
 
 | Contents | Reaction | Confluent? |
