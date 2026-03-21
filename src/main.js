@@ -46,6 +46,29 @@ const DEFAULT_MODELS = {
         (sphere 12)))))`,
 
   cube: `(cube 20)`,
+
+  warps: `(union
+  (mirror :axis "x"
+    (translate 12 0 0
+      (sphere 8)))
+  (translate 40 0 0
+    (twist :axis "y" :rate 0.15
+      (cube 20)))
+  (translate -40 0 0
+    (radial :axis "y" :count 6
+      (translate 12 0 0
+        (sphere 5))))
+  (translate 0 30 0
+    (stretch :sx 2 :sy 0.5 :sz 1
+      (sphere 12)))
+  (translate 0 -30 0
+    (bend :axis "y" :rate 0.04
+      (paint :color "green"
+        (cube 25))))
+  (translate 0 0 40
+    (taper :axis "y" :rate 0.03
+      (paint :color "orange"
+        (cylinder 10 40)))))`,
 };
 
 const DEFAULT_MODEL_NAME = 'lizard';

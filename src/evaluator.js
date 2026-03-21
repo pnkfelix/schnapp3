@@ -41,7 +41,9 @@ const UNSET_RGB = DEFAULT_RGB;
 // using Three.js primitives.
 function needsFieldEval(node) {
   const type = node[0];
-  if (type === 'intersect' || type === 'anti' || type === 'complement' || type === 'fuse') return true;
+  if (type === 'intersect' || type === 'anti' || type === 'complement' || type === 'fuse'
+      || type === 'mirror' || type === 'twist' || type === 'radial'
+      || type === 'stretch' || type === 'tile' || type === 'bend' || type === 'taper') return true;
   // Check children recursively
   const start = (type === 'union' || type === 'intersect' || type === 'anti' || type === 'complement') ? 1 : 2;
   const children = node.slice(start);
@@ -158,6 +160,15 @@ function evalNode(node) {
       return meshCSGNode(node);
     }
     case 'fuse': {
+      return meshCSGNode(node);
+    }
+    case 'mirror':
+    case 'twist':
+    case 'radial':
+    case 'stretch':
+    case 'tile':
+    case 'bend':
+    case 'taper': {
       return meshCSGNode(node);
     }
     default:
@@ -378,6 +389,141 @@ function evalCSGField(node) {
         return { polarity: Math.sign(pSum), distance: dist, color };
       };
     }
+    case 'mirror': {
+      const axis = node[1].axis || 'x';
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY;
+      const child = evalCSGField(children[0]);
+      // mirror: reflect query point — abs() on the mirror axis
+      return (x, y, z) => {
+        if (axis === 'x') return child(Math.abs(x), y, z);
+        if (axis === 'y') return child(x, Math.abs(y), z);
+        return child(x, y, Math.abs(z));
+      };
+    }
+    case 'twist': {
+      const axis = node[1].axis || 'y';
+      const rate = node[1].rate != null ? node[1].rate : 0.1;
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY;
+      const child = evalCSGField(children[0]);
+      // twist: rotate the cross-section perpendicular to axis by rate*distance_along_axis
+      return (x, y, z) => {
+        let along, u, v;
+        if (axis === 'y') { along = y; u = x; v = z; }
+        else if (axis === 'x') { along = x; u = y; v = z; }
+        else { along = z; u = x; v = y; }
+        const angle = -rate * along;
+        const c = Math.cos(angle), s = Math.sin(angle);
+        const ru = c * u - s * v, rv = s * u + c * v;
+        if (axis === 'y') return child(ru, y, rv);
+        if (axis === 'x') return child(x, ru, rv);
+        return child(ru, rv, z);
+      };
+    }
+    case 'radial': {
+      const axis = node[1].axis || 'y';
+      const count = Math.max(2, Math.round(node[1].count || 6));
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY;
+      const child = evalCSGField(children[0]);
+      const sector = 2 * Math.PI / count;
+      // radial: fold the query point into the first sector around the axis
+      return (x, y, z) => {
+        let u, v, w;
+        if (axis === 'y') { u = x; v = z; w = y; }
+        else if (axis === 'x') { u = y; v = z; w = x; }
+        else { u = x; v = y; w = z; }
+        let angle = Math.atan2(v, u);
+        if (angle < 0) angle += 2 * Math.PI;
+        angle = angle % sector;
+        // Fold to nearest sector edge for symmetry
+        if (angle > sector / 2) angle = sector - angle;
+        const r = Math.sqrt(u * u + v * v);
+        const nu = r * Math.cos(angle), nv = r * Math.sin(angle);
+        if (axis === 'y') return child(nu, w, nv);
+        if (axis === 'x') return child(w, nu, nv);
+        return child(nu, nv, w);
+      };
+    }
+    case 'stretch': {
+      const sx = node[1].sx != null ? node[1].sx : 1;
+      const sy = node[1].sy != null ? node[1].sy : 1;
+      const sz = node[1].sz != null ? node[1].sz : 1;
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY;
+      const child = evalCSGField(children[0]);
+      // stretch: query inverse-scaled point, then scale distance by min scale factor
+      // to maintain a valid SDF (conservative — overestimates distance for non-uniform)
+      const minScale = Math.min(sx, sy, sz);
+      return (x, y, z) => {
+        const result = child(x / sx, y / sy, z / sz);
+        return { polarity: result.polarity, distance: result.distance * minScale, color: result.color };
+      };
+    }
+    case 'tile': {
+      const axis = node[1].axis || 'x';
+      const spacing = node[1].spacing || 30;
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY;
+      const child = evalCSGField(children[0]);
+      // tile: repeat by wrapping the query coordinate into [-spacing/2, spacing/2]
+      const half = spacing / 2;
+      return (x, y, z) => {
+        let tx = x, ty = y, tz = z;
+        if (axis === 'x') tx = ((x % spacing) + spacing + half) % spacing - half;
+        else if (axis === 'y') ty = ((y % spacing) + spacing + half) % spacing - half;
+        else tz = ((z % spacing) + spacing + half) % spacing - half;
+        return child(tx, ty, tz);
+      };
+    }
+    case 'bend': {
+      const axis = node[1].axis || 'y';
+      const rate = node[1].rate != null ? node[1].rate : 0.05;
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY;
+      const child = evalCSGField(children[0]);
+      // bend: curve space around the given axis
+      // For axis='y': bend the x-y plane — x becomes the arc direction, y the "along" axis
+      // The geometry bends so that straight lines along x curve into arcs
+      return (x, y, z) => {
+        if (rate === 0) return child(x, y, z);
+        let along, perp, w;
+        if (axis === 'y') { along = x; perp = y; w = z; }
+        else if (axis === 'x') { along = y; perp = x; w = z; }
+        else { along = x; perp = z; w = y; }
+        const angle = along * rate;
+        const c = Math.cos(angle), s = Math.sin(angle);
+        const r = perp + 1 / rate;
+        const na = s * r;
+        const np = c * r - 1 / rate;
+        if (axis === 'y') return child(na, np, w);
+        if (axis === 'x') return child(np, na, w);
+        return child(na, w, np);
+      };
+    }
+    case 'taper': {
+      const axis = node[1].axis || 'y';
+      const rate = node[1].rate != null ? node[1].rate : 0.02;
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY;
+      const child = evalCSGField(children[0]);
+      // taper: linearly scale cross-section based on position along axis
+      // scale = 1 + rate * along — at along=0 scale is 1, grows/shrinks linearly
+      return (x, y, z) => {
+        let along, u, v;
+        if (axis === 'y') { along = y; u = x; v = z; }
+        else if (axis === 'x') { along = x; u = y; v = z; }
+        else { along = z; u = x; v = y; }
+        const scale = Math.max(0.01, 1 + rate * along);
+        const invScale = 1 / scale;
+        const result = (axis === 'y') ? child(u * invScale, y, v * invScale)
+                     : (axis === 'x') ? child(x, u * invScale, v * invScale)
+                     : child(u * invScale, v * invScale, z);
+        // Scale distance by the local scale factor to maintain valid SDF
+        return { polarity: result.polarity, distance: result.distance * scale, color: result.color };
+      };
+    }
     default:
       return () => ({ polarity: 0, distance: 0, color: UNSET_COLOR });
   }
@@ -543,6 +689,125 @@ export function evalField(node) {
       const fields = children.map(c => evalField(c));
       return softmin(fields, k);
     }
+    case 'mirror': {
+      const axis = node[1].axis || 'x';
+      const children = node.slice(2);
+      if (children.length === 0) return () => 1e10;
+      const child = evalField(children[0]);
+      return (x, y, z) => {
+        if (axis === 'x') return child(Math.abs(x), y, z);
+        if (axis === 'y') return child(x, Math.abs(y), z);
+        return child(x, y, Math.abs(z));
+      };
+    }
+    case 'twist': {
+      const axis = node[1].axis || 'y';
+      const rate = node[1].rate != null ? node[1].rate : 0.1;
+      const children = node.slice(2);
+      if (children.length === 0) return () => 1e10;
+      const child = evalField(children[0]);
+      return (x, y, z) => {
+        let along, u, v;
+        if (axis === 'y') { along = y; u = x; v = z; }
+        else if (axis === 'x') { along = x; u = y; v = z; }
+        else { along = z; u = x; v = y; }
+        const angle = -rate * along;
+        const c = Math.cos(angle), s = Math.sin(angle);
+        const ru = c * u - s * v, rv = s * u + c * v;
+        if (axis === 'y') return child(ru, y, rv);
+        if (axis === 'x') return child(x, ru, rv);
+        return child(ru, rv, z);
+      };
+    }
+    case 'radial': {
+      const axis = node[1].axis || 'y';
+      const count = Math.max(2, Math.round(node[1].count || 6));
+      const children = node.slice(2);
+      if (children.length === 0) return () => 1e10;
+      const child = evalField(children[0]);
+      const sector = 2 * Math.PI / count;
+      return (x, y, z) => {
+        let u, v, w;
+        if (axis === 'y') { u = x; v = z; w = y; }
+        else if (axis === 'x') { u = y; v = z; w = x; }
+        else { u = x; v = y; w = z; }
+        let angle = Math.atan2(v, u);
+        if (angle < 0) angle += 2 * Math.PI;
+        angle = angle % sector;
+        if (angle > sector / 2) angle = sector - angle;
+        const r = Math.sqrt(u * u + v * v);
+        const nu = r * Math.cos(angle), nv = r * Math.sin(angle);
+        if (axis === 'y') return child(nu, w, nv);
+        if (axis === 'x') return child(w, nu, nv);
+        return child(nu, nv, w);
+      };
+    }
+    case 'stretch': {
+      const sx = node[1].sx != null ? node[1].sx : 1;
+      const sy = node[1].sy != null ? node[1].sy : 1;
+      const sz = node[1].sz != null ? node[1].sz : 1;
+      const children = node.slice(2);
+      if (children.length === 0) return () => 1e10;
+      const child = evalField(children[0]);
+      const minScale = Math.min(sx, sy, sz);
+      return (x, y, z) => child(x / sx, y / sy, z / sz) * minScale;
+    }
+    case 'tile': {
+      const axis = node[1].axis || 'x';
+      const spacing = node[1].spacing || 30;
+      const children = node.slice(2);
+      if (children.length === 0) return () => 1e10;
+      const child = evalField(children[0]);
+      const half = spacing / 2;
+      return (x, y, z) => {
+        let tx = x, ty = y, tz = z;
+        if (axis === 'x') tx = ((x % spacing) + spacing + half) % spacing - half;
+        else if (axis === 'y') ty = ((y % spacing) + spacing + half) % spacing - half;
+        else tz = ((z % spacing) + spacing + half) % spacing - half;
+        return child(tx, ty, tz);
+      };
+    }
+    case 'bend': {
+      const axis = node[1].axis || 'y';
+      const rate = node[1].rate != null ? node[1].rate : 0.05;
+      const children = node.slice(2);
+      if (children.length === 0) return () => 1e10;
+      const child = evalField(children[0]);
+      return (x, y, z) => {
+        if (rate === 0) return child(x, y, z);
+        let along, perp, w;
+        if (axis === 'y') { along = x; perp = y; w = z; }
+        else if (axis === 'x') { along = y; perp = x; w = z; }
+        else { along = x; perp = z; w = y; }
+        const angle = along * rate;
+        const c = Math.cos(angle), s = Math.sin(angle);
+        const r = perp + 1 / rate;
+        const na = s * r;
+        const np = c * r - 1 / rate;
+        if (axis === 'y') return child(na, np, w);
+        if (axis === 'x') return child(np, na, w);
+        return child(na, w, np);
+      };
+    }
+    case 'taper': {
+      const axis = node[1].axis || 'y';
+      const rate = node[1].rate != null ? node[1].rate : 0.02;
+      const children = node.slice(2);
+      if (children.length === 0) return () => 1e10;
+      const child = evalField(children[0]);
+      return (x, y, z) => {
+        let along, u, v;
+        if (axis === 'y') { along = y; u = x; v = z; }
+        else if (axis === 'x') { along = x; u = y; v = z; }
+        else { along = z; u = x; v = y; }
+        const scale = Math.max(0.01, 1 + rate * along);
+        const invScale = 1 / scale;
+        const d = (axis === 'y') ? child(u * invScale, y, v * invScale)
+                : (axis === 'x') ? child(x, u * invScale, v * invScale)
+                : child(u * invScale, v * invScale, z);
+        return d * scale;
+      };
+    }
     default: {
       console.warn(`evalField: unknown node type "${type}", returning zero field`);
       return () => 0;
@@ -606,6 +871,120 @@ export function estimateBounds(node, offset = [0, 0, 0]) {
     case 'complement': {
       const children = node.slice(1);
       return mergeBounds(children.map(c => estimateBounds(c, offset)));
+    }
+    case 'mirror': {
+      // Mirror doubles the child across an axis — expand bounds to be symmetric
+      const children = node.slice(2);
+      const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
+      const axis = node[1].axis || 'x';
+      const ai = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
+      const extent = Math.max(Math.abs(childBounds.min[ai]), Math.abs(childBounds.max[ai]));
+      childBounds.min[ai] = offset[ai] - extent;
+      childBounds.max[ai] = offset[ai] + extent;
+      return childBounds;
+    }
+    case 'twist': {
+      // Twist can rotate the cross-section — expand to contain the rotated extent
+      const children = node.slice(2);
+      const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
+      // Conservative: use the max radial extent for both cross-section axes
+      const axis = node[1].axis || 'y';
+      const [a0, a1] = axis === 'x' ? [1, 2] : axis === 'y' ? [0, 2] : [0, 1];
+      const r = Math.max(
+        Math.abs(childBounds.min[a0]), Math.abs(childBounds.max[a0]),
+        Math.abs(childBounds.min[a1]), Math.abs(childBounds.max[a1])
+      );
+      childBounds.min[a0] = offset[a0] - r;
+      childBounds.max[a0] = offset[a0] + r;
+      childBounds.min[a1] = offset[a1] - r;
+      childBounds.max[a1] = offset[a1] + r;
+      return childBounds;
+    }
+    case 'radial': {
+      // Radial repeat — expand to full circle around the axis
+      const children = node.slice(2);
+      const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
+      const axis = node[1].axis || 'y';
+      const [a0, a1] = axis === 'x' ? [1, 2] : axis === 'y' ? [0, 2] : [0, 1];
+      const r = Math.max(
+        Math.abs(childBounds.min[a0]), Math.abs(childBounds.max[a0]),
+        Math.abs(childBounds.min[a1]), Math.abs(childBounds.max[a1])
+      );
+      childBounds.min[a0] = offset[a0] - r;
+      childBounds.max[a0] = offset[a0] + r;
+      childBounds.min[a1] = offset[a1] - r;
+      childBounds.max[a1] = offset[a1] + r;
+      return childBounds;
+    }
+    case 'stretch': {
+      // Stretch scales each axis — multiply child bounds by scale factors
+      const sx = node[1].sx != null ? node[1].sx : 1;
+      const sy = node[1].sy != null ? node[1].sy : 1;
+      const sz = node[1].sz != null ? node[1].sz : 1;
+      const children = node.slice(2);
+      const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
+      const scales = [sx, sy, sz];
+      for (let i = 0; i < 3; i++) {
+        const cen = offset[i];
+        childBounds.min[i] = cen + (childBounds.min[i] - cen) * scales[i];
+        childBounds.max[i] = cen + (childBounds.max[i] - cen) * scales[i];
+        if (childBounds.min[i] > childBounds.max[i]) {
+          [childBounds.min[i], childBounds.max[i]] = [childBounds.max[i], childBounds.min[i]];
+        }
+      }
+      return childBounds;
+    }
+    case 'tile': {
+      // Tile repeats along one axis — expand that axis to a large extent
+      const axis = node[1].axis || 'x';
+      const children = node.slice(2);
+      const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
+      const ai = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
+      // Show roughly 5 tiles in each direction
+      const spacing = node[1].spacing || 30;
+      const extent = spacing * 5;
+      childBounds.min[ai] = offset[ai] - extent;
+      childBounds.max[ai] = offset[ai] + extent;
+      return childBounds;
+    }
+    case 'bend': {
+      // Bend curves space — conservative expansion
+      const children = node.slice(2);
+      const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
+      // Bending can move geometry significantly; expand all axes by the child's max extent
+      const maxExtent = Math.max(
+        ...childBounds.max.map((v, i) => Math.abs(v - offset[i])),
+        ...childBounds.min.map((v, i) => Math.abs(v - offset[i]))
+      );
+      for (let i = 0; i < 3; i++) {
+        childBounds.min[i] = offset[i] - maxExtent;
+        childBounds.max[i] = offset[i] + maxExtent;
+      }
+      return childBounds;
+    }
+    case 'taper': {
+      // Taper scales cross-section — conservative: expand cross-section axes
+      const axis = node[1].axis || 'y';
+      const rate = node[1].rate != null ? node[1].rate : 0.02;
+      const children = node.slice(2);
+      const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
+      const ai = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
+      const [a0, a1] = axis === 'x' ? [1, 2] : axis === 'y' ? [0, 2] : [0, 1];
+      // Find max scale factor across the along-axis extent
+      const maxAlong = Math.max(
+        Math.abs(childBounds.min[ai] - offset[ai]),
+        Math.abs(childBounds.max[ai] - offset[ai])
+      );
+      const maxScale = Math.max(1, 1 + Math.abs(rate) * maxAlong);
+      for (const a of [a0, a1]) {
+        const ext = Math.max(
+          Math.abs(childBounds.min[a] - offset[a]),
+          Math.abs(childBounds.max[a] - offset[a])
+        ) * maxScale;
+        childBounds.min[a] = offset[a] - ext;
+        childBounds.max[a] = offset[a] + ext;
+      }
+      return childBounds;
     }
     case 'union':
     case 'intersect':
