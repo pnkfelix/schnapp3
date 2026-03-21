@@ -8,8 +8,12 @@ and chemical bag semantics. This is a living document; not all of this is implem
 Throughout this document:
 - `{field: Type}` — a **record type** description, e.g. `{x: scalar, y: scalar, z: scalar}`
 - `{field: value}` — a **record value** (literal), e.g. `{x: 10, y: 0, z: 5}`
-- `A → B` — a function type from A to B
+- `A -> B` — a function type from A to B (ASCII; `→` avoided as it's hard to type)
 - `a` — a type variable (stands for any type)
+
+Whether type annotations ever appear in the S-expression syntax is an open question.
+If the system is fully type-inferred, these notations are documentation-only and never
+written by users. If not, `->` is at least typeable.
 
 ---
 
@@ -18,10 +22,10 @@ Throughout this document:
 ```
 scalar                                    number, color
 record<{field: Type, ...}>                named bundle of typed values
-record → solid                            primitive constructor (e.g. sphere, cube, cylinder)
+record -> solid                            primitive constructor (e.g. sphere, cube, cylinder)
 solid                                     a 3D shape / Three.js geometry
-solid → solid                             shape transformer (e.g. translate, warp)
-(solid → solid) → solid → solid           transformer transformer (e.g. menger_step)
+solid -> solid                             shape transformer (e.g. translate, warp)
+(solid -> solid) -> solid -> solid         transformer transformer (e.g. menger_step)
 ```
 
 Each rung is a first-class value that can flow through the graph. Higher rungs consume
@@ -36,7 +40,7 @@ names are part of the type. Examples:
 -- types
 {x: scalar, y: scalar, z: scalar}                   translation vector type
 {left: solid, right: solid}                          a named pair of solids
-{shape: solid, xform: solid → solid}                 mixed-type record
+{shape: solid, xform: solid -> solid}                mixed-type record
 {position: {x: scalar, y: scalar, z: scalar},
  size: scalar}                                       nested record type
 
@@ -230,12 +234,12 @@ Where we end up on this is an open question.
 | Contents | Container | Reaction | Confluent? |
 |---|---|---|---|
 | `solid + solid` | `union` | CSG union arithmetic | ✓ AC |
-| `(solid → solid) + solid` | `stir` | apply transformer to shape | ✓ types are distinct |
+| `(solid -> solid) + solid` | `stir` | apply transformer to shape | ✓ types are distinct |
 | `tagged-value + constructor` | `stir` | route by field name → solid | ✓ types are distinct |
 
 ### Where bag semantics break down
 
-Two `solid → solid` transformers in the same bag: their composition is not commutative
+Two `solid -> solid` transformers in the same bag: their composition is not commutative
 (`f ∘ g ≠ g ∘ f` for most transforms), so the result is non-deterministic in a bad way.
 **Two transformers of the same type in a bag is a type error.** Explicit sequencing is
 required.
@@ -280,9 +284,9 @@ result = menger(cube{size: 1})   -- or: stir(fix(menger_step), cube{size: 1})
 
 Types:
 ```
-menger_step  : (solid → solid) → solid → solid
-fix          : (a → a) → a
-fix(menger_step) : solid → solid
+menger_step  : (solid -> solid) -> solid -> solid
+fix          : (a -> a) -> a
+fix(menger_step) : solid -> solid
 ```
 
 `fix` is depth-bounded in practice (`fix_n`) — unroll n levels, substitute a leaf
@@ -309,7 +313,7 @@ fire based on types and field names, with no implied ordering:
 
 ```
 stir(fix(menger_step), cube{size: 1})
-  → (solid → solid) + solid → application fires
+  → (solid -> solid) + solid → application fires
   → fix(menger_step)(cube{size: 1})
   → solid
 
@@ -324,18 +328,18 @@ what's in it. No ordering, no directionality — unlike `feed`, which implied a
 directed pipeline.
 
 `stir` handles reactions that are unambiguous by type:
-- `(solid → solid) + solid` → application
+- `(solid -> solid) + solid` → application
 - `tagged-value + constructor` → construction (routing by field name)
 - `solid + solid` → passed through as a bag (requires explicit `union` or `intersect` to combine)
 
-Two `solid → solid` transformers in the same `stir` remains a type error — same
+Two `solid -> solid` transformers in the same `stir` remains a type error — same
 ambiguity as before.
 
 ---
 
 ## Domain Warps
 
-Shape transformers (`solid → solid`) that deform space rather than creating new
+Shape transformers (`solid -> solid`) that deform space rather than creating new
 topology. Useful for:
 - **Symmetry operations**: bilateral mirror, radial repeat, linear tile
 - **Smooth deformation**: twist, bend, taper, spiral path
