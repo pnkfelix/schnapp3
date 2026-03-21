@@ -8,7 +8,7 @@ https://pnkfx.org/schnapp3/
 
 ## Project Goals
 
-Schnapp3 is a web-based tool combining the ease of block-based visual programming (like [Scratch](https://scratch.mit.edu/)/[Snap!](https://snap.berkeley.edu/)) with the power of parametric 3D modeling (like OpenSCAD). Design multi-filament and multi-material objects interactively without writing code.
+Schnapp3 is a web-based tool combining the ease of block-based visual programming (like [Scratch](https://scratch.mit.edu/)/[Snap!](https://snap.berkeley.edu/)) with the power of parametric 3D modeling (like [OpenSCAD](https://openscad.org/)). Design multi-filament and multi-material objects interactively without writing code.
 
 - **Visual design:** Block-based interface for intuitive 3D object creation
 - **Multi-material support:** Design parts for multi-filament and multi-material 3D printing
@@ -29,7 +29,7 @@ The S-expression AST is the canonical intermediate representation, allowing futu
 ## Tech Stack
 
 - **Frontend:** Plain ES modules, no framework
-- **3D Rendering:** Three.js (via CDN)
+- **3D Rendering:** [Three.js](https://threejs.org/) (via CDN)
 - **Deployment:** Static files to GitHub Pages
 - **Build System:** None — works as plain HTML/CSS/JS
 
