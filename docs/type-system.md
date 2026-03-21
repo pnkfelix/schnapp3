@@ -204,6 +204,54 @@ anti(B)       = −1 inside B,  0 outside    finite, safe
 complement(B) =  0 inside B, +1 outside    infinite, dangerous
 ```
 
+### Two kinds of negation: a two-component model
+
+The polarity arithmetic ({−1, 0, +1} with sgn(+) and ×) and the SDF arithmetic (ℝ
+with min/max) appear to use different operations for `union` and `intersect`. They
+are reconciled by recognising that `anti` and `complement` are **two distinct unary
+operations acting on two distinct components** of the same underlying value.
+
+Each point in space carries a two-component value:
+
+```
+(polarity, distance)
+
+polarity  ∈ {−1, 0, +1}    material charge: anti-solid / empty / solid
+distance  ∈ ℝ               signed distance to nearest surface (SDF convention:
+                             negative inside, positive outside)
+```
+
+The two negations operate on different components:
+
+```
+anti(A)        = (−polarity,  distance)    flip charge, geometry unchanged  (finite)
+complement(A)  = ( polarity, −distance)    flip geometry, charge unchanged  (infinite)
+```
+
+The binary operators compose each component independently:
+
+```
+union(A, B)     = (sgn(p_A + p_B),   min(d_A, d_B))
+intersect(A, B) = (p_A × p_B,        max(d_A, d_B))
+fuse(A, B, k)   = (sgn(p_A + p_B),   smin(d_A, d_B, k))
+```
+
+The polarity component uses the cancellation arithmetic throughout — solid ∪ anti
+cancels to empty. The distance component uses the SDF lattice throughout — rendering
+and smooth blending work directly on `distance` without involving `polarity` at all.
+They do not interfere.
+
+At render time, the `distance` component is handed directly to the raymarcher or mesh
+extractor. The `polarity` component determines whether the result is emitted as solid
+or anti-solid material (or discarded if zero). `complement` only appears implicitly
+here: the rendering volume provides a natural bound, so an infinite `complement` is
+safe at this stage.
+
+**Open question**: are `polarity` and `distance` truly independent, or is there an
+invariant relating them — e.g., "if polarity = +1 then distance ≤ 0"? If they are
+correlated, the two-component model may collapse to something simpler. If independent,
+they represent genuinely orthogonal aspects of geometry.
+
 ---
 
 ## Bag Semantics and Chemical Reactions
