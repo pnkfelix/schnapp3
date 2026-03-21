@@ -247,10 +247,39 @@ or anti-solid material (or discarded if zero). `complement` only appears implici
 here: the rendering volume provides a natural bound, so an infinite `complement` is
 safe at this stage.
 
-**Open question**: are `polarity` and `distance` truly independent, or is there an
-invariant relating them — e.g., "if polarity = +1 then distance ≤ 0"? If they are
-correlated, the two-component model may collapse to something simpler. If independent,
-they represent genuinely orthogonal aspects of geometry.
+### The invariant: polarity and distance are not independent
+
+`polarity` and `distance` are **correlated**, not independent. The invariant is:
+
+```
+polarity ≠ 0  ⟹  distance ≤ 0
+```
+
+In other words: material charge (solid or anti-solid) only exists at or inside a
+surface. Outside every object's geometry, polarity is 0 and the space is empty.
+
+Why this must hold: if `anti(sphere)` carried polarity = −1 *outside* the sphere
+(where d > 0), then:
+
+```
+union(anti(sphere), empty_space)
+  polarity: sgn(−1 + 0) = −1      ← anti-material leaks into all of space
+  distance: min(+d, ∞)  = +d
+```
+
+The anti-solid would flood infinite space with negative polarity — identical to
+`complement` behaviour, which is exactly what we wanted to avoid. Holding the
+invariant keeps `anti` finite and bounded.
+
+The two components play different roles:
+- `distance`: guides the renderer (raymarcher steps toward zero; mesh extractor
+  finds the zero crossing). Works on ℝ with no reference to polarity.
+- `polarity`: read only at surfaces (d ≈ 0) to determine material identity. Zero
+  everywhere outside, so it never bleeds.
+
+The anti-residue propagation described in [Anti-solid propagation and AC](#anti-solid-propagation-and-ac)
+is a propagation *within nested union expressions* (during evaluation), not a field
+that extends outward in space. Once evaluated, the invariant holds for the result.
 
 ---
 
