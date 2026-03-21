@@ -51,16 +51,22 @@ function needsFieldEval(node) {
   return false;
 }
 
+let evalStats = null;
+
 export function evaluate(ast) {
-  if (!ast) return new THREE.Group();
+  evalStats = { nodes: 0, voxels: 0, meshTime: 0, resolution: csgResolution };
+  const t0 = performance.now();
+  if (!ast) return { group: new THREE.Group(), stats: evalStats };
   const result = evalNode(ast);
-  if (!result) return new THREE.Group();
+  evalStats.meshTime = Math.round(performance.now() - t0);
+  if (!result) return { group: new THREE.Group(), stats: evalStats };
   const group = new THREE.Group();
   group.add(result);
-  return group;
+  return { group, stats: evalStats };
 }
 
 function evalNode(node) {
+  if (evalStats) evalStats.nodes++;
   const type = node[0];
 
   switch (type) {
@@ -163,8 +169,13 @@ function evalNode(node) {
 // Mesh a CSG node using the two-component (polarity, distance) model.
 // Returns a Three.js Group containing solid and anti-solid meshes.
 
+let csgResolution = 48;
+export function getResolution() { return csgResolution; }
+export function setResolution(n) { csgResolution = Math.max(16, Math.min(192, n)); }
+
 function meshCSGNode(node) {
-  const res = 48;
+  const res = csgResolution;
+  if (evalStats) evalStats.voxels += (res + 1) ** 3;
   const bounds = estimateBounds(node);
   const csgField = evalCSGField(node);
   const group = new THREE.Group();
