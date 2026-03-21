@@ -32,11 +32,20 @@ written by users. If not, `->` is at least typeable.
 ```
 scalar                                    number, color
 {field: Type, ...}                        bundle of named+typed values (record)
-solid                                     a 3D shape / Three.js geometry
+solid                                     finite 3D shape (all primitives: sphere, cube, …)
+anti-solid                                finite anti-solid; anti(solid)
+co-solid                                  complement(solid) — infinite, finite hole
+anti-co-solid                             complement(anti-solid) — infinite, finite hole
 {field: Type, ...} -> solid               primitive constructor (e.g. sphere, cube, cylinder)
-solid -> solid                             shape transformer (e.g. translate, warp)
-(solid -> solid) -> solid -> solid         transformer transformer (e.g. menger_step)
+solid -> solid                            shape transformer (e.g. translate, warp)
+(solid -> solid) -> solid -> solid        transformer transformer (e.g. menger_step)
 ```
+
+`solid` and `anti-solid` are always **finite** — every primitive shape is bounded, and
+no operation on finite shapes produces an infinite solid (see invariant in the CSG
+section). `co-solid` and `anti-co-solid` are always **definitely infinite** — their
+holes are finite (being complements of finite shapes), so their extent is always
+unbounded. This distinction is statically checkable.
 
 Each rung is a first-class value that can flow through the graph. Each function rung
 consumes values of types listed above it.
@@ -233,18 +242,55 @@ B − A:        sgn( 0 + −1) = −1   ×  0 =  0     zeroed  ✓
 Result: exactly A − B, no leakage. Derivable from `anti` + `union` + `intersect`
 alone — no `complement` required.
 
-### Complement (separate, dangerous)
+### Complement and the co-solid types
 
-`complement(B)` = +1 *everywhere outside B*. Infinite extent. Requires "full space"
-(the universal solid) as a primitive, which cannot be expressed from finite operators.
-Useful for advanced CSG but dangerous for 3D printing (fills all available space).
-Keep as a separate, explicitly unsafe operator — not part of the standard toolkit.
+`complement` produces an infinite value — it is not part of the standard toolkit and
+must be used deliberately. It has two typed forms:
 
-The key distinction:
 ```
-anti(B)       = −1 inside B,  0 outside    finite, safe
-complement(B) =  0 inside B, +1 outside    infinite, dangerous
+complement : solid      -> co-solid
+complement : anti-solid -> anti-co-solid
 ```
+
+It is intentionally **not** defined on `co-solid` or `anti-co-solid` inputs. Applying
+complement to an already-infinite value would require an infinite hole, which cannot
+arise from our finite primitives and would break the type guarantees below.
+
+The key distinction from `anti`:
+```
+anti(B)       = −1 inside B,  0 outside    finite,   anti-solid
+complement(B) =  0 inside B, +1 outside    infinite, co-solid
+```
+
+**Operator type rules** — what each combination of finite/infinite operands produces:
+
+```
+-- union
+union(solid,         solid)         : solid           finite
+union(solid,         anti-solid)    : solid            finite (with possible anti-residue)
+union(co-solid,      solid)         : co-solid         infinite dominates
+union(co-solid,      anti-solid)    : co-solid         infinite dominates
+union(co-solid,      co-solid)      : co-solid         infinite + infinite = infinite
+union(co-solid,      anti-co-solid) : solid            infinite exteriors cancel  ← key
+union(anti-co-solid, anti-co-solid) : anti-co-solid    infinite
+
+-- intersect
+intersect(solid,      solid)         : solid           finite ∩ finite = finite
+intersect(solid,      co-solid)      : solid           clipped to finite extent  ← safe use
+intersect(solid,      anti-co-solid) : anti-solid      clipped to finite extent  ← safe use
+intersect(co-solid,   co-solid)      : co-solid        complement(A∪B), A∪B finite → infinite
+intersect(co-solid,   anti-co-solid) : anti-co-solid   infinite
+```
+
+The soundness of `intersect(co-solid, co-solid) : co-solid` depends on the holes being
+finite: `intersect(complement(A), complement(B))` = `complement(A ∪ B)`, and since A
+and B are finite solids, `A ∪ B` is finite, so the result is definitely infinite. This
+would break if `complement` were allowed on co-solid inputs (infinite holes), which is
+why that form is excluded.
+
+`union(co-solid, anti-co-solid) : solid` always cancels the infinite exterior:
+outside both shapes, `co-solid` contributes +1 and `anti-co-solid` contributes −1;
+they cancel to 0 everywhere in the unbounded region, leaving only finite crescents.
 
 ### Two kinds of negation: a two-component model
 
