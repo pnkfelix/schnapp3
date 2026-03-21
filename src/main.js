@@ -1,7 +1,8 @@
 import { createViewport } from './viewport.js';
-import { initPalette, initWorkspace, renderWorkspace, subscribe, getRootBlocks, addBlockToRoot, addBlockAsChild, updateParam } from './blocks.js';
+import { initPalette, initWorkspace, renderWorkspace, subscribe, getRootBlocks, addBlockToRoot, addBlockAsChild, updateParam, replaceFromAST } from './blocks.js';
 import { generateAST, formatSExpr } from './codegen.js';
 import { evaluate } from './evaluator.js';
+import { parseSExpr } from './parser.js';
 
 // Boot viewport
 const viewport = createViewport(document.getElementById('viewport-panel'));
@@ -126,18 +127,42 @@ commandInput.addEventListener('keydown', (e) => {
 const codeOutput = document.getElementById('code-output');
 
 function runPipeline() {
+  if (codeEditedManually) return;
   const roots = getRootBlocks();
   const ast = generateAST(roots);
 
   // Update code preview
-  codeOutput.textContent = ast ? formatSExpr(ast) : '(empty)';
+  codeOutput.value = ast ? formatSExpr(ast) : '(empty)';
+  codeOutput.style.color = '#a0d0a0';
 
   // Update 3D viewport
   const group = evaluate(ast);
   viewport.setContent(group);
 }
 
-subscribe(runPipeline);
+subscribe(() => {
+  codeEditedManually = false;
+  runPipeline();
+});
+
+// Manual code editing → parse → eval → 3D
+let codeEditedManually = false;
+
+codeOutput.addEventListener('input', () => {
+  codeEditedManually = true;
+  try {
+    const ast = parseSExpr(codeOutput.value);
+    if (ast) {
+      replaceFromAST(ast);
+      renderWorkspace();
+      const group = evaluate(ast);
+      viewport.setContent(group);
+    }
+    codeOutput.style.color = '#a0d0a0';
+  } catch (e) {
+    codeOutput.style.color = '#e94560';
+  }
+});
 
 // Seed default scene: union of translated red cube + blue sphere
 const union = addBlockToRoot('union');
