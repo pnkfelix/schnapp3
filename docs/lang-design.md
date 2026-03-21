@@ -380,10 +380,32 @@ bags are the natural extension when comprehensions become necessary.
 Two `solid -> solid` transformers in the same bag: their composition is not commutative
 (`f ∘ g ≠ g ∘ f` for most transforms), so the result is non-deterministic in a bad way.
 **Two transformers of the same type in a bag is a type error.** Explicit sequencing is
-required.
+required. Two approaches:
+
+**1. Traditional function composition** — nest calls directly, or use a dedicated
+`compose`/`seq` operator that applies transformers left-to-right:
+
+```
+compose(warpA, warpB, warpC)(input)   -- warpA first, then warpB, then warpC
+```
+
+This works but is outside the bag/stir model — `compose` is an explicitly ordered
+operator, not a reaction container.
+
+**2. Numeric `tag`/`step` encoding** — promote each transformer to consume a
+numbered token and produce the next, so dependency order emerges from the data:
+
+```
+stir(step(1, warpA), step(2, warpB), step(3, warpC), tag(1, input))
+```
+
+This stays within the `stir` model: the bag is still unordered, but only one step
+can fire at any moment (the one whose input tag is present), so confluence is
+preserved. Full details in the [`stir` section](#stir--the-general-reaction-container).
 
 Linearity (each value consumed by exactly one reaction) prevents duplication but does
-not constrain ordering for same-type values.
+not constrain ordering for same-type values — which is exactly why one of the two
+approaches above is needed.
 
 ---
 
