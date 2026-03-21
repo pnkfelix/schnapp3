@@ -48,11 +48,47 @@ names are part of the type. Examples:
 This is already implicit in the current AST — the params dict `{x: 10, y: 0, z: 5}`
 is a record value, and the evaluator already does named projection (`node[1].x`, etc.).
 
+### Introducing `stir`
+
+`stir` is an unordered reaction container — you drop values in and type-directed
+reactions fire with no implied ordering. (The full treatment is in the
+[`stir` section](#stir--the-general-reaction-container) below; introduced here because
+it motivates why record field names matter.)
+
+The simplest example: applying `sphere` to a scalar. All three of the following are
+equivalent:
+
+```
+(sphere 20)          -- traditional application
+(stir sphere 20)     -- stir, constructor first
+(stir 20 sphere)     -- stir, scalar first
+```
+
+All evaluate to `sphere{r: 20}`. Order does not matter in `stir`.
+
+In the block UI, these look different even though they mean the same thing. Traditional
+application renders the constructor with its hole pre-wired:
+
+```
+[sphere [r: 20]]
+```
+
+The `stir` form renders the constructor and its argument as peers inside the stir
+container, with the hole shown explicitly waiting to be filled:
+
+```
+[stir [sphere [r: _]]  20]
+```
+
+The `_` is the unfilled hole in the block rendering. In the S-expression notation the
+hole is implicit; in the block UI it is explicit — a visual slot that the `20` snaps
+into regardless of where it sits in the stir container.
+
 ### Field names as routing keys
 
-In bag semantics, record field names serve as **routing keys** that determine which
-constructor or operator a record reacts with. Two records with different field names
-are different types, even if they contain the same scalar values:
+Record field names serve as **routing keys** that determine which constructor or
+operator a value reacts with in a `stir`. Two records with different field names are
+different types, even if they contain the same scalar values:
 
 ```
 stir(sphere, cube, {r: 3}, {w: 4})
@@ -62,18 +98,18 @@ stir(sphere, cube, {r: 3}, {w: 4})
 ```
 
 No ambiguity, even with multiple constructors and multiple records simultaneously in
-the bag. This is why named fields on unary constructors are not merely ceremonious —
-a bare scalar `3` in the same bag would be ambiguous (which constructor claims it?),
+the stir. This is why named fields on unary constructors are not merely ceremonious —
+a bare scalar `3` in the same stir would be ambiguous (which constructor claims it?),
 but `{r: 3}` is unambiguous.
 
 ### Bare scalar sugar
 
 As a convenience — either in the UI or in the operational semantics (TBD) — a bare
 scalar may be accepted where a single-field record is expected, when there is exactly
-one unambiguous destination in the bag. The scalar is implicitly wrapped:
+one unambiguous destination in the stir. The scalar is implicitly wrapped:
 
 ```
-3  →  {r: 3}    when the only compatible constructor is sphere
+stir(sphere, 20)  →  stir(sphere, {r: 20})  →  sphere{r: 20}
 ```
 
 This is syntactic sugar only; the underlying routing is always by field name.
