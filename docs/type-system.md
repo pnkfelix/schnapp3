@@ -28,8 +28,8 @@ solid -> solid                             shape transformer (e.g. translate, wa
 (solid -> solid) -> solid -> solid         transformer transformer (e.g. menger_step)
 ```
 
-Each rung is a first-class value that can flow through the graph. Higher rungs consume
-lower rungs.
+Each rung is a first-class value that can flow through the graph. Each function rung
+consumes values of types listed above it.
 
 Records are bundles of *any* named+typed values — fields can be scalars, solids,
 transformers, or other records. Record types with different field names (or different
