@@ -412,6 +412,44 @@ directed pipeline.
 Two `solid -> solid` transformers in the same `stir` remains a type error — same
 ambiguity as before.
 
+### Transformer composition via numeric tags
+
+To chain multiple `solid -> solid` transformers in sequence, use `step` and `tag`:
+
+```
+tag  : Nat → solid → (Nat:solid)
+step : Nat → (solid -> solid) → (Nat:solid -> (Nat+1):solid)
+```
+
+`tag(N, shape)` labels a shape with a natural number. `step(N, T)` wraps a transformer
+so it consumes `N:solid` and produces `(N+1):solid`. Dropped into a `stir`, the
+numbered chain fires in dependency order even though `stir` is unordered:
+
+```
+stir(step(1, warpA), step(2, warpB), step(3, warpC), tag(1, input))
+
+  tag(1, input)  →  1:solid available
+  step(1, warpA) fires: consumes 1:solid, produces 2:solid
+  step(2, warpB) fires: consumes 2:solid, produces 3:solid
+  step(3, warpC) fires: consumes 3:solid, produces 4:solid
+  → 4:solid remains
+```
+
+Confluence is preserved: at any moment at most one step can fire (the one whose input
+tag is present), so there is no ordering ambiguity.
+
+**Tags are transparent to geometric operations.** `N:solid` is a `solid` for all
+purposes — `union`, `intersect`, `stir` application all treat it as a plain solid
+without stripping the tag. The tag is metadata, not a wrapper that must be removed.
+
+**Tags persist as metadata on the value.** They are not erased at the end of the
+pipeline. This is useful: in the UI, hovering over a rendered pixel can report which
+`solid` produced it and list its tags — giving provenance tracking and step-level
+inspection for free, without any extra mechanism.
+
+The `tag`/`step` encoding subsumes a dedicated `compose`/`seq` operator: sequential
+composition is just `stir` with numbered steps. No new operator is required.
+
 ---
 
 ## Domain Warps
@@ -435,7 +473,7 @@ branching trees, nautilus shells) generally require `fix`.
 
 - **Scalar transformers**: math blocks that compute scalars from scalars — same `stir`
   mechanism, different type rung.
-- **Transformer composition**: if not via bags, what is the explicit composition syntax?
+- **Transformer composition**: resolved — `tag`/`step` encoding via numeric tags; see `stir` section.
 - **Record literals in blocks**: how does a user construct a `{x: scalar, y: scalar, z: scalar}`
   record value in the UI?
 - **`fix` depth control**: is the depth a parameter on `fix`, or a separate `iterate_n` wrapper?
