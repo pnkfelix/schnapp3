@@ -524,6 +524,7 @@ branching trees, nautilus shells) generally require `fix`.
     `a - b = sum(a, negate(b))`, `a / b = product(a, 1/(b))`.
   Both fit the existing `stir` mechanism without new machinery.
 - **Transformer composition**: resolved — `tag`/`step` encoding via numeric tags; see `stir` section.
-- **Record literals in blocks**: how does a user construct a `{x: scalar, y: scalar, z: scalar}`
-  record value in the UI?
+- **Record literals in blocks**: largely a non-problem — the consuming block provides
+  the slot structure; inline slot editing covers literal scalars (future work); exotic
+  cases use the S-expression editor. See `ui-notes.md`.
 - **`fix` depth control**: is the depth a parameter on `fix`, or a separate `iterate_n` wrapper?
