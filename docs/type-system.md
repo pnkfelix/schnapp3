@@ -9,7 +9,7 @@ and chemical bag semantics. This is a living document; not all of this is implem
 
 ```
 scalar                                    number, color
-record<fields>                            named bundle of scalars (e.g. {x, y, z})
+record<fields>                            named bundle of typed values (e.g. {x, y, z})
 solid                                     a 3D shape / Three.js geometry
 solid → solid                             shape transformer (e.g. translate, warp)
 (solid → solid) → solid → solid           transformer transformer (e.g. menger_step)
@@ -17,6 +17,17 @@ solid → solid                             shape transformer (e.g. translate, w
 
 Each rung is a first-class value that can flow through the graph. Higher rungs consume
 lower rungs.
+
+Records are named bundles of *any* typed values — fields can be scalars, solids,
+transformers, or other records. `{x, y, z}` happens to contain scalars, but that is
+not a constraint on records generally. Examples:
+
+```
+{x: scalar, y: scalar, z: scalar}    translation vector
+{left: solid, right: solid}           a named pair of solids
+{shape: solid, xform: solid → solid}  mixed-type record
+{position: {x, y, z}, size: scalar}  nested records
+```
 
 Records resolve same-type disambiguation: `{x, y, z}` and `{r, g, b}` are distinct
 types even though both contain three scalars. Field names are part of the type.
