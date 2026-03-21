@@ -33,7 +33,7 @@ function blockToAST(block) {
     // union: no params, just children
     return ['union', ...childExprs];
   }
-  // All other containers have params: translate, paint, recolor, smooth-union
+  // All other containers have params: translate, paint, recolor, fuse
   return [block.type, params, ...childExprs];
 }
 
@@ -96,14 +96,14 @@ function formatNode(node, indent) {
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
       return `${pad}(union\n${childStrs})`;
     }
-    case 'smooth-union': {
+    case 'fuse': {
       const p = node[1];
       const children = node.slice(2);
       if (children.length === 0) {
-        return `${pad}(smooth-union :k ${p.k})`;
+        return `${pad}(fuse :k ${p.k})`;
       }
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
-      return `${pad}(smooth-union :k ${p.k}\n${childStrs})`;
+      return `${pad}(fuse :k ${p.k}\n${childStrs})`;
     }
     default:
       return `${pad}(${type})`;

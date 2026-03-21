@@ -61,8 +61,8 @@ export const BLOCK_DEFS = {
     params: [],
     maxChildren: Infinity
   },
-  'smooth-union': {
-    label: 'Smooth Union',
+  fuse: {
+    label: 'Fuse',
     category: 'combine',
     params: [
       { name: 'k', type: 'number', default: 5, min: 0.1, max: 50 }
