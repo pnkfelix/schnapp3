@@ -169,6 +169,37 @@ The "anti-residue" at `B − A` (the part of B not covered by any solid) floats 
 and continues to subtract from solids further up the tree. This is the intended
 behaviour, not a bug.
 
+### Anti-solids are rendered
+
+Anti-solids are **first-class rendered objects**, not an invisible intermediate step
+in a computation. In the UI they appear ghostly: alpha-blended, and possibly with
+inverted colours, to distinguish them visually from solid material. Their tags persist
+and are meaningful — hovering over the ghost of an anti-solid reports its tags just
+as hovering over a solid does.
+
+This has a direct consequence for the two natural ways to express "A minus B":
+
+**`union(A, anti(B))`** — soft subtraction:
+```
+A − B:   solid          (A's material, B subtracted)
+A ∩ B:   empty          (cancellation)
+B − A:   ghostly anti   (part of B extending beyond A, rendered translucent, tagged)
+```
+The full extent of B is visible. You see both what it removes from A and where it
+reaches beyond A. The B−A ghost carries B's tags and is hoverable.
+
+**`intersect(A, complement(B))`** — hard clip:
+```
+A − B:   solid
+A ∩ B:   empty
+B − A:   truly empty    (complement kills it; no anti-material, nothing to render)
+```
+The region beyond A is dead space. B's tags are not accessible there.
+
+These are genuinely different operations with different visual and semantic consequences.
+There is no case for a first-class `subtract` operator to unify them — the choice
+between soft and hard subtraction is a deliberate design decision the user makes.
+
 ### Scoped subtraction (without complement)
 
 To subtract B from A *only*, without the anti-residue propagating to affect other
