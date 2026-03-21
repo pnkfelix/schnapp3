@@ -3,13 +3,21 @@
 Design decisions emerging from the scalar/solid distinction, collections, recursion,
 and chemical bag semantics. This is a living document; not all of this is implemented.
 
+## Notation
+
+Throughout this document:
+- `{field: Type}` — a **record type** description, e.g. `{x: scalar, y: scalar, z: scalar}`
+- `{field: value}` — a **record value** (literal), e.g. `{x: 10, y: 0, z: 5}`
+- `A → B` — a function type from A to B
+- `a` — a type variable (stands for any type)
+
 ---
 
 ## The Type Ladder
 
 ```
 scalar                                    number, color
-record<fields>                            named bundle of typed values (e.g. {x, y, z})
+record<{field: Type, ...}>                named bundle of typed values
 solid                                     a 3D shape / Three.js geometry
 solid → solid                             shape transformer (e.g. translate, warp)
 (solid → solid) → solid → solid           transformer transformer (e.g. menger_step)
@@ -19,20 +27,25 @@ Each rung is a first-class value that can flow through the graph. Higher rungs c
 lower rungs.
 
 Records are named bundles of *any* typed values — fields can be scalars, solids,
-transformers, or other records. `{x, y, z}` happens to contain scalars, but that is
-not a constraint on records generally. Examples:
+transformers, or other records. Record types with different field names (or different
+field types) are distinct types, even if they have the same number of fields. Field
+names are part of the type. Examples:
 
 ```
-{x: scalar, y: scalar, z: scalar}    translation vector
-{left: solid, right: solid}           a named pair of solids
-{shape: solid, xform: solid → solid}  mixed-type record
-{position: {x, y, z}, size: scalar}  nested records
+-- types
+{x: scalar, y: scalar, z: scalar}                   translation vector type
+{left: solid, right: solid}                          a named pair of solids
+{shape: solid, xform: solid → solid}                 mixed-type record
+{position: {x: scalar, y: scalar, z: scalar},
+ size: scalar}                                       nested record type
+
+-- values
+{x: 10, y: 0, z: 5}                                 a translation vector value
+{left: cube{size: 20}, right: sphere{radius: 10}}    a named pair of solid values
 ```
 
-Records resolve same-type disambiguation: `{x, y, z}` and `{r, g, b}` are distinct
-types even though both contain three scalars. Field names are part of the type.
 This is already implicit in the current AST — the params dict `{x: 10, y: 0, z: 5}`
-is a record, and the evaluator already does named projection.
+is a record value, and the evaluator already does named projection (`node[1].x`, etc.).
 
 ---
 
@@ -73,7 +86,7 @@ the system is only meaningful for **confluent** (order-independent) reactions.
 |---|---|---|
 | `solid + solid` | `union` | ✓ AC |
 | `(solid → solid) + solid` | apply transformer to shape | ✓ types are distinct |
-| `record{x,y,z} + solid` | translate solid by record | ✓ types are distinct |
+| `{x: scalar, y: scalar, z: scalar} + solid` | translate solid by record | ✓ types are distinct |
 
 ### Where bag semantics break down
 
@@ -92,12 +105,12 @@ not constrain ordering for same-type values.
 ### Named definitions (no self-reference)
 For reuse without recursion — the "lizard eye" case: define a composite shape once,
 instantiate it at multiple locations. No variable binding required; the name is just
-a label for a constant.
+a label for a constant solid value.
 
 ```
-define eye = union(sphere{r:3}, translate{z:1}(sphere{r:0.5}))
+define eye = union(sphere{radius: 3}, translate{z: 1}(sphere{radius: 0.5}))
 
-main = union(translate{x:-5}(eye), translate{x:5}(eye))
+main = union(translate{x: -5}(eye), translate{x: 5}(eye))
 ```
 
 ### Fixed-point recursion
@@ -111,19 +124,19 @@ menger_step(recurse, shape) =
   intersect(
     shape,
     negate(union(bar_x, bar_y, bar_z)),
-    translate(p1, scale(1/3, recurse(sub_cube(shape, p1)))),
-    translate(p2, scale(1/3, recurse(sub_cube(shape, p2)))),
+    translate{x: -1/3, y: -1/3, z: -1/3}(scale{factor: 1/3}(recurse(sub_cube(shape, 1)))),
+    translate{x:    0, y: -1/3, z: -1/3}(scale{factor: 1/3}(recurse(sub_cube(shape, 2)))),
     ... × 20
   )
 
 menger = fix(menger_step)
-result = menger(cube)   -- or: feed(cube, fix(menger_step))
+result = menger(cube{size: 1})   -- or: feed(cube{size: 1}, fix(menger_step))
 ```
 
 Types:
 ```
-menger_step : (solid → solid) → solid → solid
-fix         : (a → a) → a
+menger_step  : (solid → solid) → solid → solid
+fix          : (a → a) → a
 fix(menger_step) : solid → solid
 ```
 
@@ -180,5 +193,6 @@ branching trees, nautilus shells) generally require `fix`.
 - **Scalar transformers**: math blocks that compute scalars from scalars — same `feed`
   mechanism, different type rung.
 - **Transformer composition**: if not via bags, what is the explicit composition syntax?
-- **Record literals in blocks**: how does a user construct a `{x, y, z}` record in the UI?
+- **Record literals in blocks**: how does a user construct a `{x: scalar, y: scalar, z: scalar}`
+  record value in the UI?
 - **`fix` depth control**: is the depth a parameter on `fix`, or a separate `iterate_n` wrapper?
