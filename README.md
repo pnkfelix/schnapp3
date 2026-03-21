@@ -14,7 +14,7 @@ Schnapp3 is a web-based tool combining the ease of block-based visual programmin
 - **Multi-material support:** Design parts for multi-filament and multi-material 3D printing
 - **No code required:** Create parametric designs without learning OpenSCAD or programming
 - **Simple architecture:** Plain HTML/CSS/JavaScript, no build system, deployable to GitHub Pages
-- **Open for extension:** Export formats ([OpenSCAD](https://openscad.org/), [3MF](https://3mf.io/), G-code) can be added without changing core
+- **Open for extension:** Export formats ([OpenSCAD](https://openscad.org/), [3MF](https://3mf.io/), [Klipper G-code](https://www.klipper3d.org/)) can be added without changing core
 
 ## Architecture
 
@@ -24,7 +24,7 @@ The app uses a three-stage pipeline:
 2. **Codegen** → Block tree → S-expression AST (structured JS arrays)
 3. **Evaluator** → S-expression AST → Three.js 3D geometry → Viewport
 
-The S-expression AST is the canonical intermediate representation, allowing future exporters ([OpenSCAD](https://openscad.org/), [3MF](https://3mf.io/), G-code) to be added independently.
+The S-expression AST is the canonical intermediate representation, allowing future exporters ([OpenSCAD](https://openscad.org/), [3MF](https://3mf.io/), [Klipper G-code](https://www.klipper3d.org/)) to be added independently.
 
 ## Tech Stack
 
