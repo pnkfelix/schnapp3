@@ -422,11 +422,51 @@ define eye = union(sphere{radius: 3}, translate{z: 1}(sphere{radius: 0.5}))
 main = union(translate{x: -5}(eye), translate{x: 5}(eye))
 ```
 
-### Fixed-point recursion
+### `grow` — iteration and recursion
 
-For fractal structures, recursion is unavoidable. The key is to express it via `fix`
-rather than named self-reference, keeping `menger_step` itself non-recursive and
-independently understandable.
+`grow` is the universal "repeated application" combinator, covering both linear
+iteration (organic growth/decay) and tree-structured recursion (fractals). The two
+modes are distinguished by which argument name is used for the step function:
+
+```
+grow(seed: T, step: T -> T, hatch: T -> Solid, depth: Nat, until: (T, T) -> Bool)
+grow(seed: T, self_step: (T -> T) -> T -> T, hatch: T -> Solid, depth: Nat, until: (T, T) -> Bool)
+```
+
+The argument name **is** the tag — `step` vs `self_step` tells `grow` which
+evaluation strategy to use. No wrapper constructors needed; this is just field-name
+routing, the same mechanism the rest of the language uses.
+
+Parameters (all except `seed` have defaults):
+- `seed`: initial value of type T (required)
+- `step` or `self_step`: exactly one must be provided (both = error, neither = error)
+  - `step: T -> T` — linear iteration; receives previous value, produces next
+  - `self_step: (T -> T) -> T -> T` — tree recursion; receives the recursive call
+    as its first argument, can invoke it at multiple positions
+- `hatch: T -> Solid` — converts the final state to geometry (default: identity,
+  meaning T is already Solid)
+- `depth: Nat` — maximum iterations or recursion depth (default: global limit)
+- `until: (T, T) -> Bool` — early termination predicate, receives (previous, current);
+  default: always false (run to depth)
+
+#### Linear iteration: `step`
+
+For organic growth, erosion, accumulation — any process where each state depends on
+exactly the previous one:
+
+```
+grow(seed: cube{size: 1}, step: erode, depth: 10)
+grow(seed: sphere{r: 1}, step: scale_and_translate, hatch: identity, depth: 20,
+     until: fn(prev, curr) -> diameter(curr) < 0.1)
+```
+
+This produces the sequence T₀, T₁, T₂, ... where Tₙ₊₁ = step(Tₙ). The `until`
+predicate can stop early when the value has converged or become negligible.
+
+#### Tree recursion: `self_step`
+
+For fractal structures where the step function needs to invoke itself at multiple
+positions — Menger sponge, branching trees, Sierpinski, etc.:
 
 ```
 menger_step(recurse, shape) =
@@ -438,26 +478,28 @@ menger_step(recurse, shape) =
     ... × 20
   )
 
-menger = fix(menger_step)
-result = menger(cube{size: 1})   -- or: stir(fix(menger_step), cube{size: 1})
+result = grow(seed: cube{size: 1}, self_step: menger_step, depth: 3)
 ```
 
-Types:
-```
-menger_step  : (solid -> solid) -> solid -> solid
-fix          : (a -> a) -> a
-fix(menger_step) : solid -> solid
-```
+`self_step` receives itself as its first argument, enabling branching recursion.
+At `depth` limit, the recursive call returns the leaf value (empty solid) to
+terminate. At depth 3–4 this gives a printable fractal approximation.
 
-`fix` is depth-bounded in practice (`fix_n`) — unroll n levels, substitute a leaf
-(empty solid) at the bottom. At depth 3–4 this gives a printable fractal approximation.
+The step function `menger_step` is non-recursive and independently testable — the
+recursion is isolated to `grow`.
 
-### Why not implicit self-reference?
+#### Why one combinator?
 
-A `[self]` block inside a definition is equivalent to `fix` with an implicit argument.
-The explicit `fix(menger_step)` formulation is preferred because `menger_step` is a
-well-typed, non-recursive, independently testable function. The recursion is isolated
-to `fix`.
+Both modes share `seed`, `hatch`, `depth`, and `until`. The `depth` parameter is
+especially valuable in both contexts: for linear iteration it bounds the number of
+steps (important for rendering/meshing performance); for tree recursion it bounds
+the recursion depth (essential for termination). The `until` predicate is more
+natural for linear iteration ("has the value converged?") but can also apply to
+tree recursion ("is the sub-shape too small to subdivide further?").
+
+Having one combinator with two modes, distinguished by argument name, avoids
+proliferating combinators while keeping each use site clear about which mode is
+intended.
 
 ---
 
@@ -472,9 +514,9 @@ surprising.
 fire based on types and field names, with no implied ordering:
 
 ```
-stir(fix(menger_step), cube{size: 1})
+stir(grow(self_step: menger_step, depth: 3), cube{size: 1})
   → (solid -> solid) + solid → application fires
-  → fix(menger_step)(cube{size: 1})
+  → grow(seed: cube{size: 1}, self_step: menger_step, depth: 3)
   → solid
 
 stir(sphere, cube, {r: 3}, {w: 4})
@@ -554,8 +596,8 @@ the query point.
 
 Domain warps cover symmetry and smooth deformation but **not** fractal growth: a
 spiral of spheres where each is 10% larger than the last requires variable-parameter
-iteration (`fix` or comprehension), not a warp. Nature's fractal structures (romanesco,
-branching trees, nautilus shells) generally require `fix`.
+iteration (`grow` or comprehension), not a warp. Nature's fractal structures (romanesco,
+branching trees, nautilus shells) generally require `grow` with `self_step`.
 
 ---
 
@@ -572,4 +614,4 @@ branching trees, nautilus shells) generally require `fix`.
 - **Record literals in blocks**: largely a non-problem — the consuming block provides
   the slot structure; inline slot editing covers literal scalars (future work); exotic
   cases use the S-expression editor. See `ui-notes.md`.
-- **`fix` depth control**: is the depth a parameter on `fix`, or a separate `iterate_n` wrapper?
+- **`grow` depth control**: resolved — `depth` is a parameter on `grow`, with a global default. See the `grow` section.
