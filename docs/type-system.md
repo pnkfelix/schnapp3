@@ -154,10 +154,11 @@ union:              intersect:
 `anti(union(A, B)) = union(anti(A), anti(B))` — but note De Morgan does **not** hold
 for `intersect` under this arithmetic; `union` and `intersect` are not duals here.
 
-### Anti-solid propagation and AC
+### Anti-solid propagation and associativity/commutativity
 
 Anti-solids propagate freely through nested `union`s — they bubble up and subtract
-from any solid they encounter, regardless of grouping. This is what preserves AC:
+from any solid they encounter, regardless of grouping. This is what preserves
+associativity and commutativity of `union`:
 
 ```
 union(union(A, anti(B)), C)
@@ -308,7 +309,7 @@ The two components play different roles:
 - `polarity`: read only at surfaces (d ≈ 0) to determine material identity. Zero
   everywhere outside, so it never bleeds.
 
-The anti-residue propagation described in [Anti-solid propagation and AC](#anti-solid-propagation-and-ac)
+The anti-residue propagation described in [Anti-solid propagation and associativity/commutativity](#anti-solid-propagation-and-associativitycommutativity)
 is a propagation *within nested union expressions* (during evaluation), not a field
 that extends outward in space. Once evaluated, the invariant holds for the result.
 
@@ -347,7 +348,7 @@ bags are the natural extension when comprehensions become necessary.
 
 | Contents | Container | Reaction | Confluent? |
 |---|---|---|---|
-| `solid + solid` | `union` | CSG union arithmetic | ✓ AC |
+| `solid + solid` | `union` | CSG union arithmetic | ✓ assoc+comm |
 | `(solid -> solid) + solid` | `stir` | apply transformer to shape | ✓ types are distinct |
 | `tagged-value + constructor` | `stir` | route by field name → solid | ✓ types are distinct |
 
