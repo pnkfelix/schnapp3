@@ -1,7 +1,7 @@
 # Schnapp3 UI Design Notes
 
 Interaction design decisions and future work for the block-based editor.
-Companion to `type-system.md`; assumes familiarity with the type ladder and
+Companion to `lang-design.md`; assumes familiarity with the type ladder and
 `stir` semantics described there.
 
 ---
