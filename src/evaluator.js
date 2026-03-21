@@ -26,6 +26,23 @@ const COLOR_MAP = {
 
 const DEFAULT_COLOR = 'gray';
 
+// Is this node a paint or recolor wrapper?
+function isColorWrapper(node) {
+  return Array.isArray(node) && (node[0] === 'paint' || node[0] === 'recolor');
+}
+
+// Does this node contribute anti-polarity to its parent union?
+// Checks anti, complement, and translate wrapping them.
+function isAntiContributor(node) {
+  if (!Array.isArray(node)) return false;
+  const type = node[0];
+  if (type === 'anti' || type === 'complement') return true;
+  if (type === 'translate') {
+    return node.slice(2).some(c => Array.isArray(c) && isAntiContributor(c));
+  }
+  return false;
+}
+
 // Does this AST node (or any subtree) require CSG field evaluation?
 // If so, we must mesh the entire subtree via surface-nets rather than
 // using Three.js primitives.
@@ -124,14 +141,41 @@ function evalNode(node) {
     }
     case 'union': {
       const children = node.slice(1);
-      // If any child involves CSG ops, mesh via field eval
-      if (needsFieldEval(node)) {
-        return meshCSGNode(node);
-      }
-      const group = new THREE.Group();
+
+      // Partition into anti-contributors (anti, complement, translate-of-anti)
+      // and positive children (everything else).
+      const negative = [];
+      const positive = [];
       for (const child of children) {
-        const obj = evalNode(child);
-        if (obj) group.add(obj);
+        if (Array.isArray(child) && isAntiContributor(child)) {
+          negative.push(child);
+        } else {
+          positive.push(child);
+        }
+      }
+
+      // No anti children → simple grouping, each child evaluated independently
+      if (negative.length === 0) {
+        const group = new THREE.Group();
+        for (const child of children) {
+          const obj = evalNode(child);
+          if (obj) group.add(obj);
+        }
+        return group;
+      }
+
+      // Anti children present: mesh each positive child together with all
+      // negative children so anti-solids cut through, while preserving
+      // per-child colors.
+      const group = new THREE.Group();
+      for (const pos of positive) {
+        const syntheticUnion = ['union', pos, ...negative];
+        const color = extractPaintColor(pos);
+        const obj = meshCSGNode(syntheticUnion);
+        if (obj) {
+          if (color != null) paintObject(obj, color);
+          group.add(obj);
+        }
       }
       return group;
     }
@@ -173,10 +217,28 @@ function evalNode(node) {
 // Mesh a CSG node using the two-component (polarity, distance) model.
 // Returns a Three.js Group containing solid and anti-solid meshes.
 
+// Walk an AST node to find the outermost paint color on solid children.
+// Returns a hex color or null if no paint is found.
+function extractPaintColor(node) {
+  const type = node[0];
+  if (type === 'paint') return COLOR_MAP[node[1].color] || null;
+  if (type === 'anti' || type === 'complement') return null;
+  // Look through union, intersect, translate, fuse, recolor
+  const start = (type === 'union' || type === 'intersect' || type === 'anti' || type === 'complement') ? 1 : 2;
+  for (const child of node.slice(start)) {
+    if (Array.isArray(child)) {
+      const c = extractPaintColor(child);
+      if (c != null) return c;
+    }
+  }
+  return null;
+}
+
 function meshCSGNode(node) {
   const res = 48;
   const bounds = estimateBounds(node);
   const csgField = evalCSGField(node);
+  const solidColor = extractPaintColor(node) || COLOR_MAP[DEFAULT_COLOR];
   const group = new THREE.Group();
 
   // Extract solid mesh (polarity > 0): use distance field, surface at d=0
@@ -192,7 +254,7 @@ function meshCSGNode(node) {
   const solidGeo = meshField(solidField, bounds, res);
   if (solidGeo.index && solidGeo.index.count > 0) {
     const solidMat = new THREE.MeshStandardMaterial({
-      color: COLOR_MAP[DEFAULT_COLOR],
+      color: solidColor,
       side: THREE.DoubleSide
     });
     group.add(new THREE.Mesh(solidGeo, solidMat));
