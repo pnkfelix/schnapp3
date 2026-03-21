@@ -11,6 +11,41 @@ const viewport = createViewport(document.getElementById('viewport-panel'));
 initPalette(document.getElementById('palette'));
 initWorkspace(document.getElementById('workspace'));
 
+// Named default models (S-expr strings)
+const DEFAULT_MODELS = {
+  lizard: `(union
+  (paint :color "green"
+    (fuse :k 5
+      (translate 20 0 0
+        (cube 10))
+      (sphere 15)))
+  (paint :color "orange"
+    (union
+      (translate 5 15 5
+        (sphere 5))
+      (translate 5 15 -5
+        (sphere 5)))))`,
+
+  csg: `(union
+  (intersect
+    (cube 25)
+    (sphere 18))
+  (translate 40 0 0
+    (union
+      (cube 20)
+      (anti
+        (sphere 12))))
+  (translate -40 0 0
+    (fuse :k 5
+      (cube 20)
+      (anti
+        (sphere 12)))))`,
+
+  cube: `(cube 20)`,
+};
+
+const DEFAULT_MODEL_NAME = 'csg';
+
 // ---- Command bar ----
 
 const PANEL_NAMES = ['blocks', 'code', '3d'];
@@ -38,6 +73,9 @@ const COMMANDS = [
   { text: 'show code', hint: 'code preview only' },
   { text: 'show code 3d', hint: 'code + 3D preview' },
   { text: 'reset', hint: 'restore default model' },
+  ...Object.keys(DEFAULT_MODELS).map(name => ({
+    text: `reset ${name}`, hint: `load ${name} model`
+  })),
 ];
 
 const commandInput = document.getElementById('command-input');
@@ -88,7 +126,7 @@ function executeCommand(text) {
     }
   }
   if (parts[0] === 'reset') {
-    loadDefaultModel();
+    loadDefaultModel(parts[1]);
     commandInput.value = '';
     commandInput.blur();
     return;
@@ -174,22 +212,6 @@ codeOutput.addEventListener('input', () => {
   }
 });
 
-// Default scene as S-expr
-const DEFAULT_MODEL = `(union
-  (intersect
-    (cube 25)
-    (sphere 18))
-  (translate 40 0 0
-    (union
-      (cube 20)
-      (anti
-        (sphere 12))))
-  (translate -40 0 0
-    (fuse :k 5
-      (cube 20)
-      (anti
-        (sphere 12)))))`;
-
 function loadModel(sexpr) {
   codeEditedManually = false;
   const ast = parseSExpr(sexpr);
@@ -200,11 +222,12 @@ function loadModel(sexpr) {
   }
 }
 
-function loadDefaultModel() {
+function loadDefaultModel(name) {
+  const modelName = name && DEFAULT_MODELS[name] ? name : DEFAULT_MODEL_NAME;
   try { localStorage.removeItem('schnapp3_model'); } catch (e) {}
-  loadModel(DEFAULT_MODEL);
+  loadModel(DEFAULT_MODELS[modelName]);
 }
 
 // Load saved model or default
 const saved = (() => { try { return localStorage.getItem('schnapp3_model'); } catch (e) { return null; } })();
-loadModel(saved || DEFAULT_MODEL);
+loadModel(saved || DEFAULT_MODELS[DEFAULT_MODEL_NAME]);
