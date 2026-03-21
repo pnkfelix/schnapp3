@@ -326,7 +326,9 @@ function renderBlock(block) {
   el.className = `block block--${block.type}`;
   el.dataset.blockId = block.id;
 
-  // Determine if this block's single param should be inlined into the header
+  // Inline single scalar param into header to save vertical space.
+  // Revisit when params can accept reporter blocks — a nested block
+  // won't fit inline and the slot will need to expand to a full row.
   const inlineParam = def.params.length === 1 && def.maxChildren > 0;
 
   // Header
