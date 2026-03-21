@@ -8,7 +8,7 @@
 //   (recolor :from "COLOR" :to "COLOR" CHILD)
 //   (translate X Y Z CHILD...)
 //   (union CHILD...)
-//   (smooth-union :k K CHILD...)
+//   (fuse :k K CHILD...)
 
 export function parseSExpr(text) {
   const tokens = tokenize(text);
@@ -32,7 +32,7 @@ export function parseSExpr(text) {
       case 'paint': return parsePaint();
       case 'recolor': return parseRecolor();
       case 'union': return parseUnion();
-      case 'smooth-union': return parseSmoothUnion();
+      case 'fuse': return parseFuse();
       default: {
         skipUntilClose();
         return [type];
@@ -102,11 +102,11 @@ export function parseSExpr(text) {
     return ['recolor', { from: kw.from || 'gray', to: kw.to || 'red' }, ...children];
   }
 
-  function parseSmoothUnion() {
+  function parseFuse() {
     const kw = parseKeywordArgs();
     const children = parseChildren();
     next(); // )
-    return ['smooth-union', { k: kw.k || 5 }, ...children];
+    return ['fuse', { k: kw.k || 5 }, ...children];
   }
 
   function parseTranslate() {

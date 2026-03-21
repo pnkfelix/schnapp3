@@ -177,7 +177,7 @@ codeOutput.addEventListener('input', () => {
 // Default scene as S-expr
 const DEFAULT_MODEL = `(union
   (paint :color "green"
-    (smooth-union :k 5
+    (fuse :k 5
       (translate 20 0 0
         (cube 10))
       (sphere 15)))

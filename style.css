@@ -269,7 +269,7 @@ html, body {
   background: rgba(255,80,80,0.5);
 }
 
-/* Inline single-param in header (e.g. paint color, smooth-union k) */
+/* Inline single-param in header (e.g. paint color, fuse k) */
 .block__inline-param {
   display: flex;
   align-items: center;
@@ -376,7 +376,7 @@ html, body {
 .block--union, .palette-item--union {
   background: #555;
 }
-.block--smooth-union, .palette-item--smooth-union {
+.block--fuse, .palette-item--fuse {
   background: #cc7700;
 }
 /* ---- Drag ghost ---- */

@@ -101,7 +101,7 @@ function evalNode(node) {
       }
       return group;
     }
-    case 'smooth-union': {
+    case 'fuse': {
       const p = node[1];
       const k = p.k || 5;
       const res = p.resolution || 48;
@@ -218,7 +218,7 @@ export function evalField(node) {
         return d;
       };
     }
-    case 'smooth-union': {
+    case 'fuse': {
       const p = node[1];
       const k = p.k || 5;
       const children = node.slice(2);
@@ -286,11 +286,11 @@ export function estimateBounds(node, offset = [0, 0, 0]) {
       return mergeBounds(children.map(c => estimateBounds(c, offset)));
     }
     case 'union':
-    case 'smooth-union': {
-      const start = type === 'smooth-union' ? 2 : 1;
+    case 'fuse': {
+      const start = type === 'fuse' ? 2 : 1;
       const children = node.slice(start);
       const merged = mergeBounds(children.map(c => estimateBounds(c, offset)));
-      if (type === 'smooth-union') {
+      if (type === 'fuse') {
         const k = (node[1].k || 5);
         merged.min = merged.min.map(v => v - k);
         merged.max = merged.max.map(v => v + k);
