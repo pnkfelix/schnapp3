@@ -1,7 +1,7 @@
 import { createViewport } from './viewport.js';
 import { initPalette, initWorkspace, renderWorkspace, subscribe, getRootBlocks, addBlockToRoot, addBlockAsChild, updateParam, replaceFromAST } from './blocks.js';
 import { generateAST, formatSExpr } from './codegen.js';
-import { evaluate } from './evaluator.js';
+import { evaluate, getResolution, setResolution } from './evaluator.js';
 import { parseSExpr } from './parser.js';
 
 // Boot viewport
@@ -72,6 +72,11 @@ const COMMANDS = [
   { text: 'show 3d', hint: '3D preview only' },
   { text: 'show code', hint: 'code preview only' },
   { text: 'show code 3d', hint: 'code + 3D preview' },
+  { text: 'hud', hint: 'toggle meshing stats overlay' },
+  { text: 'resolution 48', hint: 'default (fast)' },
+  { text: 'resolution 72', hint: 'medium' },
+  { text: 'resolution 96', hint: 'fine' },
+  { text: 'resolution 128', hint: 'very fine (slow)' },
   { text: 'reset', hint: 'restore default model' },
   ...Object.keys(DEFAULT_MODELS).map(name => ({
     text: `reset ${name}`, hint: `load ${name} model`
@@ -125,6 +130,28 @@ function executeCommand(text) {
       return;
     }
   }
+  if (parts[0] === 'hud') {
+    hudEl.classList.toggle('visible');
+    if (hudEl.classList.contains('visible')) {
+      hudEl.innerHTML = '';
+      hudEntryCount = 0;
+      codeEditedManually = false;
+      runPipeline();
+    }
+    commandInput.value = '';
+    commandInput.blur();
+    return;
+  }
+  if (parts[0] === 'resolution' && parts[1]) {
+    const n = parseInt(parts[1], 10);
+    if (!isNaN(n)) {
+      setResolution(n);
+      runPipeline();
+      commandInput.value = '';
+      commandInput.blur();
+      return;
+    }
+  }
   if (parts[0] === 'reset') {
     loadDefaultModel(parts[1]);
     commandInput.value = '';
@@ -168,8 +195,29 @@ commandInput.addEventListener('keydown', (e) => {
   }
 });
 
+// ---- HUD ----
+const hudEl = document.getElementById('hud');
+const MAX_HUD_ENTRIES = 20;
+let hudEntryCount = 0;
+
+function appendHudEntry(stats) {
+  if (!hudEl.classList.contains('visible')) return;
+  hudEntryCount++;
+  const entry = document.createElement('div');
+  entry.className = 'hud-entry';
+  entry.textContent = `#${hudEntryCount} | ${stats.meshTime}ms | res ${stats.resolution} | ${stats.voxels.toLocaleString()} voxels | ${stats.nodes} nodes`;
+  hudEl.appendChild(entry);
+  // Trim old entries
+  while (hudEl.children.length > MAX_HUD_ENTRIES) {
+    hudEl.removeChild(hudEl.firstChild);
+  }
+  hudEl.scrollTop = hudEl.scrollHeight;
+}
+
 // Pipeline: block changes → codegen → eval → viewport
 const codeOutput = document.getElementById('code-output');
+const meshingIndicator = document.getElementById('meshing-indicator');
+let pipelinePending = false;
 
 function runPipeline() {
   if (codeEditedManually) return;
@@ -183,8 +231,19 @@ function runPipeline() {
   // Persist to localStorage
   try { localStorage.setItem('schnapp3_model', sexpr); } catch (e) {}
 
-  const group = evaluate(ast);
-  viewport.setContent(group);
+  // Show indicator, yield a frame so the browser paints it, then mesh
+  if (pipelinePending) return;
+  pipelinePending = true;
+  meshingIndicator.classList.add('visible');
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const { group, stats } = evaluate(ast);
+      viewport.setContent(group);
+      appendHudEntry(stats);
+      meshingIndicator.classList.remove('visible');
+      pipelinePending = false;
+    });
+  });
 }
 
 subscribe(() => {
@@ -202,8 +261,9 @@ codeOutput.addEventListener('input', () => {
     if (ast) {
       replaceFromAST(ast);
       renderWorkspace();
-      const group = evaluate(ast);
+      const { group, stats } = evaluate(ast);
       viewport.setContent(group);
+      appendHudEntry(stats);
       try { localStorage.setItem('schnapp3_model', codeOutput.value); } catch (e) {}
     }
     codeOutput.style.color = '#a0d0a0';
