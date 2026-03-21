@@ -402,6 +402,27 @@ html, body {
 .block--complement, .palette-item--complement {
   background: #668;
 }
+.block--mirror, .palette-item--mirror {
+  background: #5a8;
+}
+.block--twist, .palette-item--twist {
+  background: #a68;
+}
+.block--radial, .palette-item--radial {
+  background: #68a;
+}
+.block--stretch, .palette-item--stretch {
+  background: #8a5;
+}
+.block--tile, .palette-item--tile {
+  background: #58a;
+}
+.block--bend, .palette-item--bend {
+  background: #a85;
+}
+.block--taper, .palette-item--taper {
+  background: #85a;
+}
 /* ---- Drag ghost ---- */
 
 .drag-ghost {

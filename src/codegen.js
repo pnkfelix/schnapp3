@@ -116,6 +116,69 @@ function formatNode(node, indent) {
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
       return `${pad}(fuse :k ${p.k}\n${childStrs})`;
     }
+    case 'mirror': {
+      const p = node[1];
+      const children = node.slice(2);
+      if (children.length === 0) {
+        return `${pad}(mirror :axis "${p.axis}")`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(mirror :axis "${p.axis}"\n${childStrs})`;
+    }
+    case 'twist': {
+      const p = node[1];
+      const children = node.slice(2);
+      if (children.length === 0) {
+        return `${pad}(twist :axis "${p.axis}" :rate ${p.rate})`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(twist :axis "${p.axis}" :rate ${p.rate}\n${childStrs})`;
+    }
+    case 'radial': {
+      const p = node[1];
+      const children = node.slice(2);
+      if (children.length === 0) {
+        return `${pad}(radial :axis "${p.axis}" :count ${p.count})`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(radial :axis "${p.axis}" :count ${p.count}\n${childStrs})`;
+    }
+    case 'stretch': {
+      const p = node[1];
+      const children = node.slice(2);
+      if (children.length === 0) {
+        return `${pad}(stretch :sx ${p.sx} :sy ${p.sy} :sz ${p.sz})`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(stretch :sx ${p.sx} :sy ${p.sy} :sz ${p.sz}\n${childStrs})`;
+    }
+    case 'tile': {
+      const p = node[1];
+      const children = node.slice(2);
+      if (children.length === 0) {
+        return `${pad}(tile :axis "${p.axis}" :spacing ${p.spacing})`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(tile :axis "${p.axis}" :spacing ${p.spacing}\n${childStrs})`;
+    }
+    case 'bend': {
+      const p = node[1];
+      const children = node.slice(2);
+      if (children.length === 0) {
+        return `${pad}(bend :axis "${p.axis}" :rate ${p.rate})`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(bend :axis "${p.axis}" :rate ${p.rate}\n${childStrs})`;
+    }
+    case 'taper': {
+      const p = node[1];
+      const children = node.slice(2);
+      if (children.length === 0) {
+        return `${pad}(taper :axis "${p.axis}" :rate ${p.rate})`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(taper :axis "${p.axis}" :rate ${p.rate}\n${childStrs})`;
+    }
     default:
       return `${pad}(${type})`;
   }

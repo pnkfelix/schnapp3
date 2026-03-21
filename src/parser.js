@@ -36,6 +36,13 @@ export function parseSExpr(text) {
       case 'anti': return parseAnti();
       case 'complement': return parseComplement();
       case 'fuse': return parseFuse();
+      case 'mirror': return parseMirror();
+      case 'twist': return parseTwist();
+      case 'radial': return parseRadial();
+      case 'stretch': return parseStretch();
+      case 'tile': return parseTile();
+      case 'bend': return parseBend();
+      case 'taper': return parseTaper();
       default: {
         skipUntilClose();
         return [type];
@@ -52,10 +59,10 @@ export function parseSExpr(text) {
     const args = {};
     while (peek() && peek().startsWith(':')) {
       const kw = next().slice(1); // strip ':'
-      if (kw === 'color' || kw === 'from' || kw === 'to') {
+      if (kw === 'color' || kw === 'from' || kw === 'to' || kw === 'axis') {
         args[kw] = parseStringOrIdent();
-      } else if (kw === 'k') {
-        args.k = parseNumber();
+      } else if (kw === 'k' || kw === 'rate' || kw === 'count' || kw === 'spacing' || kw === 'sx' || kw === 'sy' || kw === 'sz') {
+        args[kw] = parseNumber();
       }
     }
     return args;
@@ -143,6 +150,55 @@ export function parseSExpr(text) {
     const children = parseChildren();
     next(); // )
     return ['complement', ...children];
+  }
+
+  function parseMirror() {
+    const kw = parseKeywordArgs();
+    const children = parseChildren();
+    next(); // )
+    return ['mirror', { axis: kw.axis || 'x' }, ...children];
+  }
+
+  function parseTwist() {
+    const kw = parseKeywordArgs();
+    const children = parseChildren();
+    next(); // )
+    return ['twist', { axis: kw.axis || 'y', rate: kw.rate != null ? kw.rate : 0.1 }, ...children];
+  }
+
+  function parseRadial() {
+    const kw = parseKeywordArgs();
+    const children = parseChildren();
+    next(); // )
+    return ['radial', { axis: kw.axis || 'y', count: kw.count || 6 }, ...children];
+  }
+
+  function parseStretch() {
+    const kw = parseKeywordArgs();
+    const children = parseChildren();
+    next(); // )
+    return ['stretch', { sx: kw.sx != null ? kw.sx : 1, sy: kw.sy != null ? kw.sy : 1, sz: kw.sz != null ? kw.sz : 1 }, ...children];
+  }
+
+  function parseTile() {
+    const kw = parseKeywordArgs();
+    const children = parseChildren();
+    next(); // )
+    return ['tile', { axis: kw.axis || 'x', spacing: kw.spacing || 30 }, ...children];
+  }
+
+  function parseBend() {
+    const kw = parseKeywordArgs();
+    const children = parseChildren();
+    next(); // )
+    return ['bend', { axis: kw.axis || 'y', rate: kw.rate != null ? kw.rate : 0.05 }, ...children];
+  }
+
+  function parseTaper() {
+    const kw = parseKeywordArgs();
+    const children = parseChildren();
+    next(); // )
+    return ['taper', { axis: kw.axis || 'y', rate: kw.rate != null ? kw.rate : 0.02 }, ...children];
   }
 
   function parseChildren() {

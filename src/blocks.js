@@ -87,6 +87,69 @@ export const BLOCK_DEFS = {
     params: [],
     maxChildren: 1
   },
+  mirror: {
+    label: 'Mirror',
+    category: 'transform',
+    params: [
+      { name: 'axis', type: 'color', default: 'x', options: ['x', 'y', 'z'] }
+    ],
+    maxChildren: 1
+  },
+  twist: {
+    label: 'Twist',
+    category: 'transform',
+    params: [
+      { name: 'axis', type: 'color', default: 'y', options: ['x', 'y', 'z'] },
+      { name: 'rate', type: 'number', default: 0.1, min: -1, max: 1 }
+    ],
+    maxChildren: 1
+  },
+  radial: {
+    label: 'Radial',
+    category: 'transform',
+    params: [
+      { name: 'axis', type: 'color', default: 'y', options: ['x', 'y', 'z'] },
+      { name: 'count', type: 'number', default: 6, min: 2, max: 36 }
+    ],
+    maxChildren: 1
+  },
+  stretch: {
+    label: 'Stretch',
+    category: 'transform',
+    params: [
+      { name: 'sx', type: 'number', default: 1, min: 0.1, max: 10 },
+      { name: 'sy', type: 'number', default: 1, min: 0.1, max: 10 },
+      { name: 'sz', type: 'number', default: 1, min: 0.1, max: 10 }
+    ],
+    maxChildren: 1
+  },
+  tile: {
+    label: 'Tile',
+    category: 'transform',
+    params: [
+      { name: 'axis', type: 'color', default: 'x', options: ['x', 'y', 'z'] },
+      { name: 'spacing', type: 'number', default: 30, min: 1, max: 200 }
+    ],
+    maxChildren: 1
+  },
+  bend: {
+    label: 'Bend',
+    category: 'transform',
+    params: [
+      { name: 'axis', type: 'color', default: 'y', options: ['x', 'y', 'z'] },
+      { name: 'rate', type: 'number', default: 0.05, min: -0.5, max: 0.5 }
+    ],
+    maxChildren: 1
+  },
+  taper: {
+    label: 'Taper',
+    category: 'transform',
+    params: [
+      { name: 'axis', type: 'color', default: 'y', options: ['x', 'y', 'z'] },
+      { name: 'rate', type: 'number', default: 0.02, min: -0.1, max: 0.1 }
+    ],
+    maxChildren: 1
+  },
 };
 
 // ---- State ----
