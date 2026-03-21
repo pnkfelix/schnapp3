@@ -51,26 +51,87 @@ is a record value, and the evaluator already does named projection (`node[1].x`,
 
 ## CSG Operators
 
-### Primitives
-- `union` — AC (associative, commutative), bag semantics
-- `intersect` — AC, bag semantics
-- `negate` — unary; flips inside/outside (in SDF: `sdf_anti(p) = -sdf(p)`)
+### The arithmetic
 
-### Derived
-- `difference(A, B)` = `intersect(A, negate(B))` = `max(sdf_A, -sdf_B)`
+Each point in space carries a value in {−1, 0, +1}:
+- **solid**: +1 at interior points, 0 outside
+- **anti-solid**: −1 at interior points, 0 outside
+- **empty**: 0 everywhere
 
-### Anti-solids and scoped subtraction
+The three operators are:
 
-`negate(B)` produces an anti-solid. When passed to `intersect`, it scopes the
-subtraction: `intersect(A, negate(B))` removes B only from A, not from anything else.
-The result is a regular solid that can be freely unioned with other things.
-
-`union` with mixed solids and anti-solids uses two-class bag semantics:
 ```
-(⋃ all solids) − (⋃ all anti-solids)
+union(a, b)     = sgn(a + b)    -- sign of sum  ("or" for same sign, cancellation for opposite)
+intersect(a, b) = a × b         -- multiplication (sign rules: −×− = +, +×− = −)
+anti(a)         = −a            -- negation
 ```
-This is AC, but anti-solids subtract from *everything* in the union, not selectively.
-For selective subtraction, use `intersect` with `negate`.
+
+Truth tables over {−1, 0, +1}:
+
+```
+union:              intersect:
+  +1 ∪ +1 = +1        +1 ∩ +1 = +1   solid ∩ solid = solid
+  +1 ∪  0 = +1        +1 ∩  0 =  0
+  +1 ∪ −1 =  0        +1 ∩ −1 = −1   solid ∩ anti  = anti
+   0 ∪ −1 = −1        −1 ∩ −1 = +1   anti  ∩ anti  = solid  ("two negatives")
+  −1 ∪ −1 = −1         x ∩  0 =  0
+```
+
+`union` behaves like OR for same-sign inputs, but opposite signs cancel to empty.
+`intersect` follows the sign rules of multiplication exactly.
+`anti` distributes through both operators via De Morgan for `union`:
+`anti(union(A, B)) = union(anti(A), anti(B))` — but note De Morgan does **not** hold
+for `intersect` under this arithmetic; `union` and `intersect` are not duals here.
+
+### Anti-solid propagation and AC
+
+Anti-solids propagate freely through nested `union`s — they bubble up and subtract
+from any solid they encounter, regardless of grouping. This is what preserves AC:
+
+```
+union(union(A, anti(B)), C)
+  = union(A, anti(B), C)     -- anti(B) propagates out
+  = (A ∪ C) − B              -- same regardless of grouping  ✓
+```
+
+The "anti-residue" at `B − A` (the part of B not covered by any solid) floats free
+and continues to subtract from solids further up the tree. This is the intended
+behaviour, not a bug.
+
+### Scoped subtraction (without complement)
+
+To subtract B from A *only*, without the anti-residue propagating to affect other
+solids, intersect the result with A. Since A = 0 outside its own extent, the
+intersection zeroes out any residue:
+
+```
+intersect(union(A, anti(B)), A)
+```
+
+Step by step at each region:
+
+```
+              union(A, anti(B))    then ∩ A      result
+A − B:        sgn(+1 +  0) = +1   × +1 = +1     solid   ✓
+A ∩ B:        sgn(+1 + −1) =  0   × +1 =  0     empty   ✓
+B − A:        sgn( 0 + −1) = −1   ×  0 =  0     zeroed  ✓
+```
+
+Result: exactly A − B, no leakage. Derivable from `anti` + `union` + `intersect`
+alone — no `complement` required.
+
+### Complement (separate, dangerous)
+
+`complement(B)` = +1 *everywhere outside B*. Infinite extent. Requires "full space"
+(the universal solid) as a primitive, which cannot be expressed from finite operators.
+Useful for advanced CSG but dangerous for 3D printing (fills all available space).
+Keep as a separate, explicitly unsafe operator — not part of the standard toolkit.
+
+The key distinction:
+```
+anti(B)       = −1 inside B,  0 outside    finite, safe
+complement(B) =  0 inside B, +1 outside    infinite, dangerous
+```
 
 ---
 
