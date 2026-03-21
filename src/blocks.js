@@ -139,6 +139,82 @@ export function updateParam(blockId, paramName, value) {
   notify();
 }
 
+// Replace entire block state from a parsed AST (used by code editor round-trip).
+// Does NOT notify subscribers to avoid circular updates.
+export function replaceFromAST(ast) {
+  // Clear existing state
+  allBlocks.clear();
+  rootBlocks = [];
+
+  if (!ast) return;
+
+  function buildBlock(node, parentId) {
+    const type = node[0];
+    const def = BLOCK_DEFS[type];
+    if (!def) return null;
+
+    const block = {
+      id: 'block_' + (nextId++),
+      type,
+      params: {},
+      children: [],
+      parent: parentId
+    };
+
+    // Fill params with defaults first
+    for (const p of def.params) {
+      block.params[p.name] = p.default;
+    }
+
+    // Override from AST
+    if (type === 'cube') {
+      const p = node[1];
+      if (p.size != null) block.params.size = p.size;
+      if (p.color != null) block.params.color = p.color;
+    } else if (type === 'sphere') {
+      const p = node[1];
+      if (p.radius != null) block.params.radius = p.radius;
+      if (p.color != null) block.params.color = p.color;
+    } else if (type === 'cylinder') {
+      const p = node[1];
+      if (p.radius != null) block.params.radius = p.radius;
+      if (p.height != null) block.params.height = p.height;
+      if (p.color != null) block.params.color = p.color;
+    } else if (type === 'translate') {
+      const p = node[1];
+      if (p.x != null) block.params.x = p.x;
+      if (p.y != null) block.params.y = p.y;
+      if (p.z != null) block.params.z = p.z;
+    }
+
+    allBlocks.set(block.id, block);
+
+    // Build children
+    const childNodes = (type === 'union') ? node.slice(1) : node.slice(2);
+    for (const childNode of childNodes) {
+      if (Array.isArray(childNode)) {
+        const child = buildBlock(childNode, block.id);
+        if (child) block.children.push(child);
+      }
+    }
+
+    return block;
+  }
+
+  // If the top-level is a union, its children become roots
+  if (ast[0] === 'union') {
+    for (const child of ast.slice(1)) {
+      if (Array.isArray(child)) {
+        const block = buildBlock(child, null);
+        if (block) rootBlocks.push(block);
+      }
+    }
+  } else {
+    const block = buildBlock(ast, null);
+    if (block) rootBlocks.push(block);
+  }
+}
+
 export function moveBlock(blockId, newParentId) {
   const block = allBlocks.get(blockId);
   if (!block) return;

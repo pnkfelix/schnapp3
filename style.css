@@ -369,7 +369,7 @@ html, body {
 #code-output {
   padding: 8px 10px;
   font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
-  font-size: 13px;
+  font-size: 16px; /* prevents iOS zoom */
   line-height: 1.5;
   color: #a0d0a0;
   background: rgba(0,0,0,0.2);
@@ -378,6 +378,10 @@ html, body {
   margin: 0;
   flex: 1;
   min-height: 0;
+  border: none;
+  resize: none;
+  outline: none;
+  -webkit-appearance: none;
 }
 
 /* ---- Viewport ---- */
