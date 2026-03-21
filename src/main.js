@@ -176,17 +176,19 @@ codeOutput.addEventListener('input', () => {
 
 // Default scene as S-expr
 const DEFAULT_MODEL = `(union
-  (paint :color "green"
-    (fuse :k 5
-      (translate 20 0 0
-        (cube 10))
-      (sphere 15)))
-  (paint :color "orange"
+  (intersect
+    (cube 25)
+    (sphere 18))
+  (translate 40 0 0
     (union
-      (translate 5 15 5
-        (sphere 5))
-      (translate 5 15 -5
-        (sphere 5)))))`;
+      (cube 20)
+      (anti
+        (sphere 12))))
+  (translate -40 0 0
+    (fuse :k 5
+      (cube 20)
+      (anti
+        (sphere 12)))))`;
 
 function loadModel(sexpr) {
   codeEditedManually = false;

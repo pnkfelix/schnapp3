@@ -69,6 +69,24 @@ export const BLOCK_DEFS = {
     ],
     maxChildren: Infinity
   },
+  intersect: {
+    label: 'Intersect',
+    category: 'combine',
+    params: [],
+    maxChildren: Infinity
+  },
+  anti: {
+    label: 'Anti',
+    category: 'combine',
+    params: [],
+    maxChildren: 1
+  },
+  complement: {
+    label: 'Complement',
+    category: 'combine',
+    params: [],
+    maxChildren: 1
+  },
 };
 
 // ---- State ----
@@ -137,13 +155,17 @@ export function addBlockToRoot(type) {
   return block;
 }
 
-export function addBlockAsChild(type, parentId) {
+export function addBlockAsChild(type, parentId, index) {
   const parent = allBlocks.get(parentId);
   const def = BLOCK_DEFS[parent.type];
   if (parent.children.length >= def.maxChildren) return null;
   const block = createBlock(type);
   block.parent = parentId;
-  parent.children.push(block);
+  if (index != null && index >= 0 && index <= parent.children.length) {
+    parent.children.splice(index, 0, block);
+  } else {
+    parent.children.push(block);
+  }
   notify();
   return block;
 }
@@ -200,8 +222,9 @@ export function replaceFromAST(ast) {
 
     allBlocks.set(block.id, block);
 
-    // Build children — union has no params object, others do
-    const childNodes = (type === 'union') ? node.slice(1) : node.slice(2);
+    // Build children — union/intersect/anti/complement have no params object, others do
+    const noParamTypes = ['union', 'intersect', 'anti', 'complement'];
+    const childNodes = noParamTypes.includes(type) ? node.slice(1) : node.slice(2);
     for (const childNode of childNodes) {
       if (Array.isArray(childNode)) {
         const child = buildBlock(childNode, block.id);
@@ -212,8 +235,8 @@ export function replaceFromAST(ast) {
     return block;
   }
 
-  // If the top-level is a union, its children become roots
-  if (ast[0] === 'union') {
+  // If the top-level is a union or intersect, its children become roots
+  if (ast[0] === 'union' || ast[0] === 'intersect') {
     for (const child of ast.slice(1)) {
       if (Array.isArray(child)) {
         const block = buildBlock(child, null);
@@ -226,7 +249,7 @@ export function replaceFromAST(ast) {
   }
 }
 
-export function moveBlock(blockId, newParentId) {
+export function moveBlock(blockId, newParentId, index) {
   const block = allBlocks.get(blockId);
   if (!block) return;
   if (newParentId) {
@@ -241,7 +264,11 @@ export function moveBlock(blockId, newParentId) {
     }
     removeBlockFromParent(block);
     block.parent = newParentId;
-    newParent.children.push(block);
+    if (index != null && index >= 0 && index <= newParent.children.length) {
+      newParent.children.splice(index, 0, block);
+    } else {
+      newParent.children.push(block);
+    }
   } else {
     removeBlockFromParent(block);
     rootBlocks.push(block);
@@ -371,17 +398,36 @@ function renderBlock(block) {
   if (def.maxChildren > 0) {
     const childrenEl = document.createElement('div');
     childrenEl.className = 'block__children';
-    for (const child of block.children) {
-      childrenEl.appendChild(renderBlock(child));
-    }
-    // Show drop zone if there's remaining capacity
-    const remaining = def.maxChildren - block.children.length;
-    if (remaining > 0) {
-      const dropZone = document.createElement('div');
-      dropZone.className = 'drop-zone';
-      dropZone.dataset.dropTarget = block.id;
-      dropZone.textContent = 'Drop here';
-      childrenEl.appendChild(dropZone);
+    const isBag = def.maxChildren === Infinity;
+
+    if (isBag) {
+      // Bag container: inter-child drop zones for reordering
+      for (let i = 0; i < block.children.length; i++) {
+        const gap = document.createElement('div');
+        gap.className = 'drop-zone drop-zone--gap';
+        gap.dataset.dropTarget = block.id + ':' + i;
+        childrenEl.appendChild(gap);
+        childrenEl.appendChild(renderBlock(block.children[i]));
+      }
+      // Trailing drop zone (always visible)
+      const trailing = document.createElement('div');
+      trailing.className = 'drop-zone';
+      trailing.dataset.dropTarget = block.id + ':' + block.children.length;
+      trailing.textContent = block.children.length === 0 ? 'Drop here' : '+';
+      childrenEl.appendChild(trailing);
+    } else {
+      // Fixed-arity container (translate, paint, anti, etc.)
+      for (const child of block.children) {
+        childrenEl.appendChild(renderBlock(child));
+      }
+      const remaining = def.maxChildren - block.children.length;
+      if (remaining > 0) {
+        const dropZone = document.createElement('div');
+        dropZone.className = 'drop-zone';
+        dropZone.dataset.dropTarget = block.id;
+        dropZone.textContent = 'Drop here';
+        childrenEl.appendChild(dropZone);
+      }
     }
     el.appendChild(childrenEl);
   }
@@ -492,20 +538,27 @@ function onDragEnd(e) {
     return;
   }
 
-  // Find drop target
-  const target = findDropTarget(e.clientX, e.clientY);
+  // Find drop target — may be "root", "blockId", or "blockId:index"
+  const raw = findDropTarget(e.clientX, e.clientY);
+  let target = raw;
+  let insertIndex;
+  if (raw && raw !== 'root' && raw.includes(':')) {
+    const parts = raw.split(':');
+    target = parts[0];
+    insertIndex = parseInt(parts[1], 10);
+  }
 
   if (dragState.source === 'palette') {
     if (target === 'root') {
       addBlockToRoot(dragState.blockType);
     } else if (target) {
-      addBlockAsChild(dragState.blockType, target);
+      addBlockAsChild(dragState.blockType, target, insertIndex);
     }
   } else if (dragState.source === 'workspace') {
     if (target === 'root') {
       moveBlock(dragState.blockId, null);
     } else if (target && target !== dragState.blockId) {
-      moveBlock(dragState.blockId, target);
+      moveBlock(dragState.blockId, target, insertIndex);
     }
   }
 

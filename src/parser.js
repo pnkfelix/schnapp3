@@ -32,6 +32,9 @@ export function parseSExpr(text) {
       case 'paint': return parsePaint();
       case 'recolor': return parseRecolor();
       case 'union': return parseUnion();
+      case 'intersect': return parseIntersect();
+      case 'anti': return parseAnti();
+      case 'complement': return parseComplement();
       case 'fuse': return parseFuse();
       default: {
         skipUntilClose();
@@ -122,6 +125,24 @@ export function parseSExpr(text) {
     const children = parseChildren();
     next(); // )
     return ['union', ...children];
+  }
+
+  function parseIntersect() {
+    const children = parseChildren();
+    next(); // )
+    return ['intersect', ...children];
+  }
+
+  function parseAnti() {
+    const children = parseChildren();
+    next(); // )
+    return ['anti', ...children];
+  }
+
+  function parseComplement() {
+    const children = parseChildren();
+    next(); // )
+    return ['complement', ...children];
   }
 
   function parseChildren() {

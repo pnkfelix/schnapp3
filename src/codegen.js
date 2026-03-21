@@ -29,9 +29,10 @@ function blockToAST(block) {
   // Container: [type, params (if any), ...children]
   const childExprs = block.children.map(blockToAST);
 
-  if (block.type === 'union') {
-    // union: no params, just children
-    return ['union', ...childExprs];
+  // Parameterless containers: union, intersect, anti, complement
+  const noParamTypes = ['union', 'intersect', 'anti', 'complement'];
+  if (noParamTypes.includes(block.type)) {
+    return [block.type, ...childExprs];
   }
   // All other containers have params: translate, paint, recolor, fuse
   return [block.type, params, ...childExprs];
@@ -88,13 +89,23 @@ function formatNode(node, indent) {
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
       return `${pad}(recolor :from "${p.from}" :to "${p.to}"\n${childStrs})`;
     }
-    case 'union': {
+    case 'union':
+    case 'intersect': {
       const children = node.slice(1);
       if (children.length === 0) {
-        return `${pad}(union)`;
+        return `${pad}(${type})`;
       }
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
-      return `${pad}(union\n${childStrs})`;
+      return `${pad}(${type}\n${childStrs})`;
+    }
+    case 'anti':
+    case 'complement': {
+      const children = node.slice(1);
+      if (children.length === 0) {
+        return `${pad}(${type})`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(${type}\n${childStrs})`;
     }
     case 'fuse': {
       const p = node[1];
