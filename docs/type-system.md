@@ -48,6 +48,36 @@ names are part of the type. Examples:
 This is already implicit in the current AST — the params dict `{x: 10, y: 0, z: 5}`
 is a record value, and the evaluator already does named projection (`node[1].x`, etc.).
 
+### Field names as routing keys
+
+In bag semantics, record field names serve as **routing keys** that determine which
+constructor or operator a record reacts with. Two records with different field names
+are different types, even if they contain the same scalar values:
+
+```
+bag(make-sphere, make-cube, {r: 3}, {w: 4})
+  → {r: 3}  matches make-sphere  by field name  →  sphere{r: 3}
+  → {w: 4}  matches make-cube    by field name  →  cube{w: 4}
+  → result: bag(sphere, cube)  →  union(sphere, cube)
+```
+
+No ambiguity, even with multiple constructors and multiple records simultaneously in
+the bag. This is why named fields on unary constructors are not merely ceremonious —
+a bare scalar `3` in the same bag would be ambiguous (which constructor claims it?),
+but `{r: 3}` is unambiguous.
+
+### Bare scalar sugar
+
+As a convenience — either in the UI or in the operational semantics (TBD) — a bare
+scalar may be accepted where a single-field record is expected, when there is exactly
+one unambiguous destination in the bag. The scalar is implicitly wrapped:
+
+```
+3  →  {r: 3}    when the only compatible constructor is make-sphere
+```
+
+This is syntactic sugar only; the underlying routing is always by field name.
+
 ---
 
 ## CSG Operators
