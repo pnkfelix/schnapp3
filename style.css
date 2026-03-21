@@ -343,7 +343,9 @@ html, body {
 .block--union, .palette-item--union {
   background: #555;
 }
-
+.block--smooth-union, .palette-item--smooth-union {
+  background: #cc7700;
+}
 /* ---- Drag ghost ---- */
 
 .drag-ghost {

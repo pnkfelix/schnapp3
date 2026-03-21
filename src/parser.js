@@ -27,6 +27,7 @@ export function parseSExpr(text) {
       case 'cylinder': return parseCylinder();
       case 'translate': return parseTranslate();
       case 'union': return parseUnion();
+      case 'smooth-union': return parseSmoothUnion();
       default: {
         skipUntilClose();
         return [type];
@@ -41,9 +42,13 @@ export function parseSExpr(text) {
 
   function parseKeywordArgs() {
     const args = {};
-    while (peek() === ':color') {
-      next(); // consume :color
-      args.color = parseStringOrIdent();
+    while (peek() && peek().startsWith(':')) {
+      const kw = next().slice(1); // strip ':'
+      if (kw === 'color') {
+        args.color = parseStringOrIdent();
+      } else if (kw === 'k') {
+        args.k = parseNumber();
+      }
     }
     return args;
   }
@@ -76,6 +81,13 @@ export function parseSExpr(text) {
     const kw = parseKeywordArgs();
     next(); // )
     return ['cylinder', { radius, height, color: kw.color || 'green' }];
+  }
+
+  function parseSmoothUnion() {
+    const kw = parseKeywordArgs();
+    const children = parseChildren();
+    next(); // )
+    return ['smooth-union', { k: kw.k || 5, color: kw.color || 'orange' }, ...children];
   }
 
   function parseTranslate() {

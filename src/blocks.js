@@ -44,7 +44,16 @@ export const BLOCK_DEFS = {
     category: 'combine',
     params: [],
     maxChildren: Infinity
-  }
+  },
+  'smooth-union': {
+    label: 'Smooth Union',
+    category: 'combine',
+    params: [
+      { name: 'k', type: 'number', default: 5, min: 0.1, max: 50 },
+      { name: 'color', type: 'color', default: 'orange', options: ['red', 'blue', 'green', 'orange', 'yellow'] }
+    ],
+    maxChildren: Infinity
+  },
 };
 
 // ---- State ----
@@ -166,30 +175,17 @@ export function replaceFromAST(ast) {
       block.params[p.name] = p.default;
     }
 
-    // Override from AST
-    if (type === 'cube') {
+    // Override from AST — copy matching param values from node[1] if present
+    if (node[1] && typeof node[1] === 'object' && !Array.isArray(node[1])) {
       const p = node[1];
-      if (p.size != null) block.params.size = p.size;
-      if (p.color != null) block.params.color = p.color;
-    } else if (type === 'sphere') {
-      const p = node[1];
-      if (p.radius != null) block.params.radius = p.radius;
-      if (p.color != null) block.params.color = p.color;
-    } else if (type === 'cylinder') {
-      const p = node[1];
-      if (p.radius != null) block.params.radius = p.radius;
-      if (p.height != null) block.params.height = p.height;
-      if (p.color != null) block.params.color = p.color;
-    } else if (type === 'translate') {
-      const p = node[1];
-      if (p.x != null) block.params.x = p.x;
-      if (p.y != null) block.params.y = p.y;
-      if (p.z != null) block.params.z = p.z;
+      for (const param of def.params) {
+        if (p[param.name] != null) block.params[param.name] = p[param.name];
+      }
     }
 
     allBlocks.set(block.id, block);
 
-    // Build children
+    // Build children — union has no params object, others do
     const childNodes = (type === 'union') ? node.slice(1) : node.slice(2);
     for (const childNode of childNodes) {
       if (Array.isArray(childNode)) {

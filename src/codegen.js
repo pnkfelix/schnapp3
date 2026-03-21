@@ -31,6 +31,9 @@ function blockToAST(block) {
   if (block.type === 'translate') {
     return ['translate', params, ...childExprs];
   }
+  if (block.type === 'smooth-union') {
+    return ['smooth-union', params, ...childExprs];
+  }
   // union: no params, just children
   return ['union', ...childExprs];
 }
@@ -75,6 +78,15 @@ function formatNode(node, indent) {
       }
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
       return `${pad}(union\n${childStrs})`;
+    }
+    case 'smooth-union': {
+      const p = node[1];
+      const children = node.slice(2);
+      if (children.length === 0) {
+        return `${pad}(smooth-union :k ${p.k} :color "${p.color}")`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(smooth-union :k ${p.k} :color "${p.color}"\n${childStrs})`;
     }
     default:
       return `${pad}(${type})`;
