@@ -16,6 +16,7 @@ import { meshField } from './surface-nets.js';
 //   fuse(A, B, k)   = (sgn(p_A + p_B),  smin(d_A, d_B, k))
 
 const COLOR_MAP = {
+  unset:  0xaaaaaa,
   gray:   0xaaaaaa,
   red:    0xff4444,
   blue:   0x4488ff,
@@ -25,12 +26,15 @@ const COLOR_MAP = {
 };
 
 const DEFAULT_COLOR = 'gray';
+const UNSET_COLOR = 'unset';
 
 function hexToRgb(hex) {
   return [(hex >> 16 & 0xff) / 255, (hex >> 8 & 0xff) / 255, (hex & 0xff) / 255];
 }
 
 const DEFAULT_RGB = hexToRgb(COLOR_MAP[DEFAULT_COLOR]);
+// Unset renders as gray but yields to any explicit color in CSG operations
+const UNSET_RGB = DEFAULT_RGB;
 
 // Does this AST node (or any subtree) require CSG field evaluation?
 // If so, we must mesh the entire subtree via surface-nets rather than
@@ -171,7 +175,10 @@ function meshCSGNode(node) {
     if (polarity > 0) return distance;
     return Math.abs(distance) + 0.01;
   };
-  const solidColorField = (x, y, z) => csgField(x, y, z).color;
+  const solidColorField = (x, y, z) => {
+    const c = csgField(x, y, z).color;
+    return c === UNSET_COLOR ? UNSET_RGB : c;
+  };
 
   const solidGeo = meshField(solidField, bounds, res, solidColorField);
   if (solidGeo.index && solidGeo.index.count > 0) {
@@ -207,7 +214,7 @@ function meshCSGNode(node) {
 // ---- Three-component CSG field evaluation ----
 // Returns (x, y, z) => { polarity: -1|0|+1, distance: number, color: [r,g,b] }
 
-const EMPTY = { polarity: 0, distance: 1e10, color: DEFAULT_RGB };
+const EMPTY = { polarity: 0, distance: 1e10, color: UNSET_COLOR };
 
 function evalCSGField(node) {
   const type = node[0];
@@ -217,7 +224,7 @@ function evalCSGField(node) {
       const r = node[1].radius || 15;
       return (x, y, z) => {
         const d = Math.sqrt(x*x + y*y + z*z) - r;
-        return { polarity: d <= 0 ? 1 : 0, distance: d, color: DEFAULT_RGB };
+        return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR };
       };
     }
     case 'cube': {
@@ -227,7 +234,7 @@ function evalCSGField(node) {
         const outside = Math.sqrt(Math.max(qx,0)**2 + Math.max(qy,0)**2 + Math.max(qz,0)**2);
         const inside = Math.min(Math.max(qx, qy, qz), 0);
         const d = outside + inside;
-        return { polarity: d <= 0 ? 1 : 0, distance: d, color: DEFAULT_RGB };
+        return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR };
       };
     }
     case 'cylinder': {
@@ -239,7 +246,7 @@ function evalCSGField(node) {
         const outside = Math.sqrt(Math.max(dx,0)**2 + Math.max(dy,0)**2);
         const inside = Math.min(Math.max(dx, dy), 0);
         const d = outside + inside;
-        return { polarity: d <= 0 ? 1 : 0, distance: d, color: DEFAULT_RGB };
+        return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR };
       };
     }
     case 'translate': {
@@ -258,7 +265,10 @@ function evalCSGField(node) {
       };
     }
     case 'paint': {
-      const rgb = hexToRgb(COLOR_MAP[node[1].color] || COLOR_MAP[DEFAULT_COLOR]);
+      const colorName = node[1].color || DEFAULT_COLOR;
+      const color = colorName === UNSET_COLOR
+        ? UNSET_COLOR
+        : hexToRgb(COLOR_MAP[colorName] || COLOR_MAP[DEFAULT_COLOR]);
       const children = node.slice(2);
       if (children.length === 0) return () => EMPTY;
       const inner = children.length === 1
@@ -266,12 +276,16 @@ function evalCSGField(node) {
         : ((fields) => (x, y, z) => csgUnion(fields.map(f => f(x, y, z))))(children.map(c => evalCSGField(c)));
       return (x, y, z) => {
         const r = inner(x, y, z);
-        return { polarity: r.polarity, distance: r.distance, color: rgb };
+        return { polarity: r.polarity, distance: r.distance, color };
       };
     }
     case 'recolor': {
-      const fromRgb = hexToRgb(COLOR_MAP[node[1].from] || COLOR_MAP[DEFAULT_COLOR]);
-      const toRgb = hexToRgb(COLOR_MAP[node[1].to] || COLOR_MAP[DEFAULT_COLOR]);
+      const fromName = node[1].from || DEFAULT_COLOR;
+      const fromRgb = hexToRgb(COLOR_MAP[fromName] || COLOR_MAP[DEFAULT_COLOR]);
+      const toName = node[1].to || DEFAULT_COLOR;
+      const toColor = toName === UNSET_COLOR
+        ? UNSET_COLOR
+        : hexToRgb(COLOR_MAP[toName] || COLOR_MAP[DEFAULT_COLOR]);
       const children = node.slice(2);
       if (children.length === 0) return () => EMPTY;
       const inner = children.length === 1
@@ -279,8 +293,10 @@ function evalCSGField(node) {
         : ((fields) => (x, y, z) => csgUnion(fields.map(f => f(x, y, z))))(children.map(c => evalCSGField(c)));
       return (x, y, z) => {
         const r = inner(x, y, z);
-        const match = Math.abs(r.color[0] - fromRgb[0]) + Math.abs(r.color[1] - fromRgb[1]) + Math.abs(r.color[2] - fromRgb[2]) < 0.05;
-        return { polarity: r.polarity, distance: r.distance, color: match ? toRgb : r.color };
+        const match = r.color !== UNSET_COLOR
+          ? fromName !== UNSET_COLOR && Math.abs(r.color[0] - fromRgb[0]) + Math.abs(r.color[1] - fromRgb[1]) + Math.abs(r.color[2] - fromRgb[2]) < 0.05
+          : fromName === UNSET_COLOR;
+        return { polarity: r.polarity, distance: r.distance, color: match ? toColor : r.color };
       };
     }
     case 'union': {
@@ -331,24 +347,32 @@ function evalCSGField(node) {
         for (const v of neg) sum += Math.exp(v - maxNeg);
         const dist = -k * (Math.log(sum) + maxNeg);
         // Blend colors weighted by softmin contribution (closer = more weight)
+        // Unset colors are excluded from the blend; if all unset, stay unset
         const weights = neg.map(v => Math.exp(v - maxNeg));
-        const wTotal = weights.reduce((a, b) => a + b, 0);
-        const color = [0, 0, 0];
+        let setTotal = 0;
         for (let i = 0; i < results.length; i++) {
-          const w = weights[i] / wTotal;
-          color[0] += results[i].color[0] * w;
-          color[1] += results[i].color[1] * w;
-          color[2] += results[i].color[2] * w;
+          if (results[i].color !== UNSET_COLOR) setTotal += weights[i];
+        }
+        let color = UNSET_COLOR;
+        if (setTotal > 0) {
+          color = [0, 0, 0];
+          for (let i = 0; i < results.length; i++) {
+            if (results[i].color === UNSET_COLOR) continue;
+            const w = weights[i] / setTotal;
+            color[0] += results[i].color[0] * w;
+            color[1] += results[i].color[1] * w;
+            color[2] += results[i].color[2] * w;
+          }
         }
         return { polarity: Math.sign(pSum), distance: dist, color };
       };
     }
     default:
-      return () => ({ polarity: 0, distance: 0, color: DEFAULT_RGB });
+      return () => ({ polarity: 0, distance: 0, color: UNSET_COLOR });
   }
 }
 
-// CSG union: (sgn(p_A + p_B), min(d_A, d_B), color of closest)
+// CSG union: (sgn(p_A + p_B), min(d_A, d_B), color preferring set over unset)
 function csgUnion(results) {
   let pSum = 0;
   let best = results[0];
@@ -356,10 +380,17 @@ function csgUnion(results) {
     pSum += r.polarity;
     if (r.distance < best.distance) best = r;
   }
-  return { polarity: Math.sign(pSum), distance: best.distance, color: best.color };
+  // Prefer any explicitly-set color over unset
+  let color = best.color;
+  if (color === UNSET_COLOR) {
+    for (const r of results) {
+      if (r.color !== UNSET_COLOR) { color = r.color; break; }
+    }
+  }
+  return { polarity: Math.sign(pSum), distance: best.distance, color };
 }
 
-// CSG intersect: (product of polarities, max(d_A, d_B), color of farthest)
+// CSG intersect: (product of polarities, max(d_A, d_B), color preferring set over unset)
 function csgIntersect(results) {
   let pProd = results[0].polarity;
   let best = results[0];
@@ -367,7 +398,14 @@ function csgIntersect(results) {
     pProd *= results[i].polarity;
     if (results[i].distance > best.distance) best = results[i];
   }
-  return { polarity: pProd, distance: best.distance, color: best.color };
+  // Prefer any explicitly-set color over unset
+  let color = best.color;
+  if (color === UNSET_COLOR) {
+    for (const r of results) {
+      if (r.color !== UNSET_COLOR) { color = r.color; break; }
+    }
+  }
+  return { polarity: pProd, distance: best.distance, color };
 }
 
 // Traverse a Three.js object and set all mesh materials to the given color
