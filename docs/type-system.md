@@ -55,10 +55,10 @@ constructor or operator a record reacts with. Two records with different field n
 are different types, even if they contain the same scalar values:
 
 ```
-bag(make-sphere, make-cube, {r: 3}, {w: 4})
+stir(make-sphere, make-cube, {r: 3}, {w: 4})
   → {r: 3}  matches make-sphere  by field name  →  sphere{r: 3}
   → {w: 4}  matches make-cube    by field name  →  cube{w: 4}
-  → result: bag(sphere, cube)  →  union(sphere, cube)
+  → result: stir(sphere, cube)  →  union(sphere, cube)
 ```
 
 No ambiguity, even with multiple constructors and multiple records simultaneously in
@@ -191,11 +191,11 @@ Where we end up on this is an open question.
 
 ### Where bag semantics work
 
-| Contents | Reaction | Confluent? |
-|---|---|---|
-| `solid + solid` | `union` | ✓ AC |
-| `(solid → solid) + solid` | apply transformer to shape | ✓ types are distinct |
-| `{x: scalar, y: scalar, z: scalar} + solid` | translate solid by record | ✓ types are distinct |
+| Contents | Container | Reaction | Confluent? |
+|---|---|---|---|
+| `solid + solid` | `union` | CSG union arithmetic | ✓ AC |
+| `(solid → solid) + solid` | `stir` | apply transformer to shape | ✓ types are distinct |
+| `tagged-value + constructor` | `stir` | route by field name → solid | ✓ types are distinct |
 
 ### Where bag semantics break down
 
@@ -239,7 +239,7 @@ menger_step(recurse, shape) =
   )
 
 menger = fix(menger_step)
-result = menger(cube{size: 1})   -- or: feed(cube{size: 1}, fix(menger_step))
+result = menger(cube{size: 1})   -- or: stir(fix(menger_step), cube{size: 1})
 ```
 
 Types:
@@ -261,21 +261,39 @@ to `fix`.
 
 ---
 
-## The `feed` Operator (Explicit Application)
+## `stir` — The General Reaction Container
 
-Currently, `translate`'s shape argument is a structural child slot — application is
-implicit in the tree. Once `fix(menger_step)` produces a first-class `solid → solid`
-value, explicit application is needed.
+`union` and `intersect` are specific CSG operators with defined arithmetic over solids.
+They are **not** the right container for general type-directed reactions such as
+transformer application or constructor routing — conflating them would be confusing and
+surprising.
 
-`feed(shape, transformer)` — shape-first order, pipeline / `|>` style.
+`stir` is the general unordered reaction container. You drop values in, and reactions
+fire based on types and field names, with no implied ordering:
 
-In the chemical model, `feed` may be implicit: a `solid → solid` and a `solid` in the
-same bag react to produce a `solid`, with no explicit application operator needed.
-The type distinctness makes the reaction unambiguous.
+```
+stir(fix(menger_step), cube{size: 1})
+  → (solid → solid) + solid → application fires
+  → fix(menger_step)(cube{size: 1})
+  → solid
 
-Type-specific variants (`feed_scalar`, `feed_solid`) may be useful for error reporting
-but can likely be unified under a single polymorphic `feed` distinguished by block
-color/shape in the UI.
+stir(make-sphere, make-cube, {r: 3}, {w: 4})
+  → routing fires by field name
+  → stir(sphere{r:3}, cube{w:4})
+  → two solids remain → union(sphere{r:3}, cube{w:4})
+```
+
+The name fits the CHAM metaphor: you stir a solution and reactions happen based on
+what's in it. No ordering, no directionality — unlike `feed`, which implied a
+directed pipeline.
+
+`stir` handles reactions that are unambiguous by type:
+- `(solid → solid) + solid` → application
+- `tagged-value + constructor` → construction (routing by field name)
+- `solid + solid` → passed through as a bag (requires explicit `union` or `intersect` to combine)
+
+Two `solid → solid` transformers in the same `stir` remains a type error — same
+ambiguity as before.
 
 ---
 
@@ -298,8 +316,7 @@ branching trees, nautilus shells) generally require `fix`.
 
 ## Open Questions
 
-- **Argument order for `feed`**: shape-first (`|>` style) vs transformer-first (`$` style)?
-- **Scalar transformers**: math blocks that compute scalars from scalars — same `feed`
+- **Scalar transformers**: math blocks that compute scalars from scalars — same `stir`
   mechanism, different type rung.
 - **Transformer composition**: if not via bags, what is the explicit composition syntax?
 - **Record literals in blocks**: how does a user construct a `{x: scalar, y: scalar, z: scalar}`
