@@ -14,17 +14,21 @@ initWorkspace(document.getElementById('workspace'));
 // Named default models (S-expr strings)
 const DEFAULT_MODELS = {
   lizard: `(union
-  (paint :color "green"
-    (fuse :k 5
-      (translate 20 0 0
-        (cube 10))
-      (sphere 15)))
   (paint :color "orange"
     (union
       (translate 5 15 5
         (sphere 5))
       (translate 5 15 -5
-        (sphere 5)))))`,
+        (sphere 5))))
+  (intersect
+    (union
+      (paint :color "green"
+        (fuse :k 5
+          (translate 20 0 0
+            (cube 10))
+          (sphere 15)))
+      (anti
+        (cylinder 8 30)))))`,
 
   csg: `(union
   (intersect
@@ -44,7 +48,7 @@ const DEFAULT_MODELS = {
   cube: `(cube 20)`,
 };
 
-const DEFAULT_MODEL_NAME = 'csg';
+const DEFAULT_MODEL_NAME = 'lizard';
 
 // ---- Command bar ----
 
