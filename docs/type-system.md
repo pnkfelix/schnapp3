@@ -21,8 +21,8 @@ written by users. If not, `->` is at least typeable.
 
 ```
 scalar                                    number, color
-record<{field: Type, ...}>                named bundle of typed values
-record -> solid                            primitive constructor (e.g. sphere, cube, cylinder)
+{field: Type, ...}                        bundle of named+typed values (record)
+{field: Type, ...} -> solid                            primitive constructor (e.g. sphere, cube, cylinder)
 solid                                     a 3D shape / Three.js geometry
 solid -> solid                             shape transformer (e.g. translate, warp)
 (solid -> solid) -> solid -> solid         transformer transformer (e.g. menger_step)
