@@ -211,9 +211,13 @@ function removeBlockRecursive(block) {
   allBlocks.delete(block.id);
 }
 
-export function addBlockToRoot(type) {
+export function addBlockToRoot(type, index) {
   const block = createBlock(type);
-  rootBlocks.push(block);
+  if (index != null && index >= 0 && index <= rootBlocks.length) {
+    rootBlocks.splice(index, 0, block);
+  } else {
+    rootBlocks.push(block);
+  }
   notify();
   return block;
 }
@@ -334,7 +338,11 @@ export function moveBlock(blockId, newParentId, index) {
     }
   } else {
     removeBlockFromParent(block);
-    rootBlocks.push(block);
+    if (index != null && index >= 0 && index <= rootBlocks.length) {
+      rootBlocks.splice(index, 0, block);
+    } else {
+      rootBlocks.push(block);
+    }
   }
   notify();
 }
@@ -368,13 +376,17 @@ export function initWorkspace(el) {
 export function renderWorkspace() {
   if (!workspaceEl) return;
   workspaceEl.innerHTML = '';
-  for (const block of rootBlocks) {
-    workspaceEl.appendChild(renderBlock(block));
+  for (let i = 0; i < rootBlocks.length; i++) {
+    const gap = document.createElement('div');
+    gap.className = 'drop-zone drop-zone--gap';
+    gap.dataset.dropTarget = 'root:' + i;
+    workspaceEl.appendChild(gap);
+    workspaceEl.appendChild(renderBlock(rootBlocks[i]));
   }
-  // Root drop zone
+  // Trailing root drop zone
   const rootDrop = document.createElement('div');
   rootDrop.className = 'drop-zone';
-  rootDrop.dataset.dropTarget = 'root';
+  rootDrop.dataset.dropTarget = 'root:' + rootBlocks.length;
   rootDrop.textContent = rootBlocks.length === 0 ? 'Drag blocks here' : '+';
   workspaceEl.appendChild(rootDrop);
 }
@@ -601,11 +613,11 @@ function onDragEnd(e) {
     return;
   }
 
-  // Find drop target — may be "root", "blockId", or "blockId:index"
+  // Find drop target — may be "root", "root:index", "blockId", or "blockId:index"
   const raw = findDropTarget(e.clientX, e.clientY);
   let target = raw;
   let insertIndex;
-  if (raw && raw !== 'root' && raw.includes(':')) {
+  if (raw && raw.includes(':')) {
     const parts = raw.split(':');
     target = parts[0];
     insertIndex = parseInt(parts[1], 10);
@@ -613,13 +625,13 @@ function onDragEnd(e) {
 
   if (dragState.source === 'palette') {
     if (target === 'root') {
-      addBlockToRoot(dragState.blockType);
+      addBlockToRoot(dragState.blockType, insertIndex);
     } else if (target) {
       addBlockAsChild(dragState.blockType, target, insertIndex);
     }
   } else if (dragState.source === 'workspace') {
     if (target === 'root') {
-      moveBlock(dragState.blockId, null);
+      moveBlock(dragState.blockId, null, insertIndex);
     } else if (target && target !== dragState.blockId) {
       moveBlock(dragState.blockId, target, insertIndex);
     }
