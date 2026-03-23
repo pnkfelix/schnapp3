@@ -8,14 +8,41 @@ const BAILOUT_CHECK_DEPTH = 3;
 const BAILOUT_MIN_CULL_RATIO = 0.1;
 
 export function buildOctree(intervalField, bounds, maxDepth, stats) {
-  const leaves = [];
-  let bailedOut = false;
-
   const minX = bounds.min[0], minY = bounds.min[1], minZ = bounds.min[2];
   const maxX = bounds.max[0], maxY = bounds.max[1], maxZ = bounds.max[2];
 
+  // Phase 1: shallow pass to BAILOUT_CHECK_DEPTH to decide if octree is useful.
+  // This avoids the DFS pollution problem where deeper exploration dilutes the
+  // cull ratio before all shallow nodes have been checked.
+  if (maxDepth > BAILOUT_CHECK_DEPTH && stats) {
+    let shallowVisited = 0, shallowCulled = 0;
+    function shallowCheck(x0, y0, z0, x1, y1, z1, depth) {
+      shallowVisited++;
+      const result = intervalField([x0, x1], [y0, y1], [z0, z1]);
+      const cls = classify(result.distance);
+      if (cls === 'outside' || cls === 'inside') { shallowCulled++; return; }
+      if (depth >= BAILOUT_CHECK_DEPTH) return;
+      const mx = (x0 + x1) / 2, my = (y0 + y1) / 2, mz = (z0 + z1) / 2;
+      shallowCheck(x0, y0, z0, mx, my, mz, depth + 1);
+      shallowCheck(mx, y0, z0, x1, my, mz, depth + 1);
+      shallowCheck(x0, my, z0, mx, y1, mz, depth + 1);
+      shallowCheck(mx, my, z0, x1, y1, mz, depth + 1);
+      shallowCheck(x0, y0, mz, mx, my, z1, depth + 1);
+      shallowCheck(mx, y0, mz, x1, my, z1, depth + 1);
+      shallowCheck(x0, my, mz, mx, y1, z1, depth + 1);
+      shallowCheck(mx, my, mz, x1, y1, z1, depth + 1);
+    }
+    shallowCheck(minX, minY, minZ, maxX, maxY, maxZ, 0);
+    if (shallowVisited > 8 && shallowCulled / shallowVisited < BAILOUT_MIN_CULL_RATIO) {
+      stats.bailedOut = true;
+      return null;
+    }
+  }
+
+  // Phase 2: full octree build (no bail-out check needed, already passed)
+  const leaves = [];
+
   function recurse(x0, y0, z0, x1, y1, z1, depth) {
-    if (bailedOut) return;
     if (stats) stats.nodesVisited++;
 
     const result = intervalField([x0, x1], [y0, y1], [z0, z1]);
@@ -30,15 +57,6 @@ export function buildOctree(intervalField, bounds, maxDepth, stats) {
       return;
     }
 
-    if (depth === BAILOUT_CHECK_DEPTH && stats) {
-      const totalVisited = stats.nodesVisited;
-      const totalCulled = stats.nodesCulledOutside + stats.nodesCulledInside;
-      if (totalVisited > 8 && totalCulled / totalVisited < BAILOUT_MIN_CULL_RATIO) {
-        bailedOut = true;
-        return;
-      }
-    }
-
     const mx = (x0 + x1) / 2, my = (y0 + y1) / 2, mz = (z0 + z1) / 2;
     recurse(x0, y0, z0, mx, my, mz, depth + 1);
     recurse(mx, y0, z0, x1, my, mz, depth + 1);
@@ -51,7 +69,7 @@ export function buildOctree(intervalField, bounds, maxDepth, stats) {
   }
 
   recurse(minX, minY, minZ, maxX, maxY, maxZ, 0);
-  return bailedOut ? null : leaves;
+  return leaves;
 }
 
 export function meshOctreeLeavesRaw(leaves, pointField, bounds, maxDepth, colorField, stats) {

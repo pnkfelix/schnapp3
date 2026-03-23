@@ -174,48 +174,80 @@ export function evalCSGFieldInterval(node) {
       const children = node.slice(2);
       if (children.length === 0) return () => EMPTY_IV;
       const child = evalCSGFieldInterval(children[0]);
-      // Twist is hard to bound tightly — use a conservative fallback:
-      // the distance can't be less than the child's distance minus the max rotation displacement
+      // Warp-aware bounding: twist preserves distance from the twist axis.
+      // When the angle interval is narrow (<π/2), use standard interval trig.
+      // When wide, use the geometric bound: output (u,v) is bounded by [-r, r]
+      // where r is the max radius from the axis.
       return (xIv, yIv, zIv) => {
         let alongIv, uIv, vIv;
         if (axis === 'y') { alongIv = yIv; uIv = xIv; vIv = zIv; }
         else if (axis === 'x') { alongIv = xIv; uIv = yIv; vIv = zIv; }
         else { alongIv = zIv; uIv = xIv; vIv = yIv; }
-        const angleIv = imul([- rate, -rate], alongIv);
-        const cosIv = icos(angleIv);
-        const sinIv = isin(angleIv);
-        // ru = cos*u - sin*v, rv = sin*u + cos*v
-        const ruIv = isub(imul(cosIv, uIv), imul(sinIv, vIv));
-        const rvIv = iadd(imul(sinIv, uIv), imul(cosIv, vIv));
+        const angleIv = imul([-rate, -rate], alongIv);
+        const angleSpan = angleIv[1] - angleIv[0];
+
+        let ruIv, rvIv;
+        if (angleSpan < Math.PI / 2) {
+          // Narrow angle — standard interval trig is tight enough
+          const cosIv = icos(angleIv);
+          const sinIv = isin(angleIv);
+          ruIv = isub(imul(cosIv, uIv), imul(sinIv, vIv));
+          rvIv = iadd(imul(sinIv, uIv), imul(cosIv, vIv));
+        } else {
+          // Wide angle — use radius-preserving geometric bound
+          const rmax = Math.sqrt(
+            Math.max(uIv[0] * uIv[0], uIv[1] * uIv[1]) +
+            Math.max(vIv[0] * vIv[0], vIv[1] * vIv[1])
+          );
+          ruIv = [-rmax, rmax];
+          rvIv = [-rmax, rmax];
+        }
         if (axis === 'y') return child(ruIv, yIv, rvIv);
         if (axis === 'x') return child(xIv, ruIv, rvIv);
         return child(ruIv, rvIv, zIv);
       };
     }
     case 'radial': {
-      // Radial is very hard to bound with intervals — fall back to conservative.
-      // We know the distance is bounded by the child evaluated at [0, maxRadius] for the
-      // folded sector, but the folding math is tricky in interval form.
-      // Conservative: evaluate child over the full radial extent.
+      // Warp-aware bounding: radial symmetry preserves distance from axis.
+      // A point at radius r maps to (r*cos(θ'), r*sin(θ')) where θ' is the
+      // folded angle in [0, sector/2]. We compute tight radius bounds [rmin, rmax]
+      // for the input box and use them to bound the output coordinates.
       const axis = node[1].axis || 'y';
       const count = Math.max(2, Math.round(node[1].count || 6));
       const children = node.slice(2);
       if (children.length === 0) return () => EMPTY_IV;
       const child = evalCSGFieldInterval(children[0]);
       const sector = 2 * Math.PI / count;
+      const halfSector = sector / 2;
+      const cosHalf = Math.cos(halfSector);
+      const sinHalf = Math.sin(halfSector);
       return (xIv, yIv, zIv) => {
         let uIv, vIv, wIv;
         if (axis === 'y') { uIv = xIv; vIv = zIv; wIv = yIv; }
         else if (axis === 'x') { uIv = yIv; vIv = zIv; wIv = xIv; }
         else { uIv = xIv; vIv = yIv; wIv = zIv; }
-        // Max radius in this region
-        const r2 = iadd(isq(uIv), isq(vIv));
-        const rIv = isqrt(r2);
-        // After folding into sector, u ∈ [0, r], v ∈ [0, r*sin(sector/2)]
-        // Conservative: use [0, rmax] for both cross-section coords
-        const rmax = rIv[1];
-        const nuIv = [0, rmax];
-        const nvIv = [0, rmax * Math.sin(sector / 2)];
+        // Compute radius interval [rmin, rmax]
+        // rmax = max corner distance from axis
+        const rmax = Math.sqrt(
+          Math.max(uIv[0] * uIv[0], uIv[1] * uIv[1]) +
+          Math.max(vIv[0] * vIv[0], vIv[1] * vIv[1])
+        );
+        // rmin: minimum distance from axis for box [uLo,uHi] x [vLo,vHi]
+        // If box contains the axis (both intervals span 0), rmin = 0
+        let rmin;
+        if (uIv[0] <= 0 && uIv[1] >= 0 && vIv[0] <= 0 && vIv[1] >= 0) {
+          rmin = 0;
+        } else {
+          // Closest point on box to axis: clamp (0,0) to box
+          const cu = Math.max(uIv[0], Math.min(0, uIv[1]));
+          const cv = Math.max(vIv[0], Math.min(0, vIv[1]));
+          rmin = Math.sqrt(cu * cu + cv * cv);
+        }
+        // After folding into [0, halfSector]:
+        //   output u ∈ [rmin * cos(halfSector), rmax]  (cos shrinks at max angle)
+        //   output v ∈ [0, rmax * sin(halfSector)]
+        const nuIv = [rmin * cosHalf, rmax];
+        const nvIv = [0, rmax * sinHalf];
         if (axis === 'y') return child(nuIv, wIv, nvIv);
         if (axis === 'x') return child(wIv, nuIv, nvIv);
         return child(nuIv, nvIv, wIv);
@@ -269,21 +301,36 @@ export function evalCSGFieldInterval(node) {
       if (children.length === 0) return () => EMPTY_IV;
       const child = evalCSGFieldInterval(children[0]);
       if (rate === 0) return child;
-      // Bend is a nonlinear coordinate transform — use conservative bounding.
-      // The transform preserves distances approximately, so we can evaluate the
-      // child over a widened input interval.
+      // Warp-aware bounding: bend rotates each point around a circle of
+      // radius R = perp + 1/rate centered at (0, 1/rate). The rotation
+      // preserves R. When the angle interval is narrow, standard interval
+      // trig is fine. When wide, use the geometric bound.
+      const invRate = 1 / rate;
       return (xIv, yIv, zIv) => {
         let alongIv, perpIv, wIv;
         if (axis === 'y') { alongIv = xIv; perpIv = yIv; wIv = zIv; }
         else if (axis === 'x') { alongIv = yIv; perpIv = xIv; wIv = zIv; }
         else { alongIv = xIv; perpIv = zIv; wIv = yIv; }
         const angleIv = imul(alongIv, [rate, rate]);
-        const cosIv = icos(angleIv);
-        const sinIv = isin(angleIv);
-        const invRate = 1 / rate;
-        const rIv = iadd(perpIv, [invRate, invRate]);
-        const naIv = imul(sinIv, rIv);
-        const npIv = isub(imul(cosIv, rIv), [invRate, invRate]);
+        const angleSpan = angleIv[1] - angleIv[0];
+
+        let naIv, npIv;
+        if (angleSpan < Math.PI / 2) {
+          // Narrow angle — standard interval trig
+          const cosIv = icos(angleIv);
+          const sinIv = isin(angleIv);
+          const rIv = iadd(perpIv, [invRate, invRate]);
+          naIv = imul(sinIv, rIv);
+          npIv = isub(imul(cosIv, rIv), [invRate, invRate]);
+        } else {
+          // Wide angle — geometric bound using radius preservation
+          // R = perp + 1/rate; after rotation, na ∈ [-Rmax, Rmax],
+          // np + 1/rate ∈ [-Rmax, Rmax] → np ∈ [-Rmax - 1/rate, Rmax - 1/rate]
+          const rIv = iadd(perpIv, [invRate, invRate]);
+          const rmax = Math.max(Math.abs(rIv[0]), Math.abs(rIv[1]));
+          naIv = [-rmax, rmax];
+          npIv = [-rmax - invRate, rmax - invRate];
+        }
         if (axis === 'y') return child(naIv, npIv, wIv);
         if (axis === 'x') return child(npIv, naIv, wIv);
         return child(naIv, wIv, npIv);

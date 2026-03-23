@@ -444,3 +444,103 @@ test('radial with wide intervals', () => {
     );
   }
 });
+
+// --- Stress tests for warp-aware bounding ---
+// These specifically target the geometric bound code paths (wide angles,
+// boxes far from the axis, etc.)
+
+suite('containment: warp-aware stress tests');
+
+test('twist with extreme rate (many wraps)', () => {
+  // rate=0.5 over y∈[-20,20] = angle span of 20 radians — many full rotations
+  const node = ['twist', { axis: 'y', rate: 0.5 }, ['cube', { size: 15 }]];
+  testContainment(node, { min: [-20, -20, -20], max: [20, 20, 20] }, 500);
+});
+
+test('twist with box far from axis', () => {
+  // Translated so the box is away from the twist axis
+  const node = ['twist', { axis: 'y', rate: 0.15 },
+    ['translate', { x: 30, y: 0, z: 0 }, ['cube', { size: 10 }]]
+  ];
+  testContainment(node, { min: [15, -25, -25], max: [50, 25, 25] }, 300);
+});
+
+test('twist all three axes', () => {
+  for (const axis of ['x', 'y', 'z']) {
+    const node = ['twist', { axis, rate: 0.1 }, ['cube', { size: 20 }]];
+    testContainment(node, WIDE_BOUNDS, 200);
+  }
+});
+
+test('bend with extreme rate', () => {
+  const node = ['bend', { axis: 'y', rate: 0.2 }, ['cube', { size: 15 }]];
+  testContainment(node, WIDE_BOUNDS, 500);
+});
+
+test('bend all three axes', () => {
+  for (const axis of ['x', 'y', 'z']) {
+    const node = ['bend', { axis, rate: 0.04 }, ['cube', { size: 25 }]];
+    testContainment(node, WIDE_BOUNDS, 200);
+  }
+});
+
+test('bend with box spanning large along range', () => {
+  const node = ['bend', { axis: 'y', rate: 0.04 }, ['cube', { size: 25 }]];
+  // Wide box in the along direction (x for axis=y bend)
+  testContainment(node, { min: [-50, -30, -30], max: [50, 30, 30] }, 300);
+});
+
+test('radial with low count (2-way)', () => {
+  const node = ['radial', { axis: 'y', count: 2 },
+    ['translate', { x: 10, y: 0, z: 0 }, ['sphere', { radius: 5 }]]
+  ];
+  testContainment(node, WIDE_BOUNDS, 300);
+});
+
+test('radial with high count (12-way)', () => {
+  const node = ['radial', { axis: 'y', count: 12 },
+    ['translate', { x: 15, y: 0, z: 0 }, ['sphere', { radius: 3 }]]
+  ];
+  testContainment(node, WIDE_BOUNDS, 300);
+});
+
+test('radial all three axes', () => {
+  for (const axis of ['x', 'y', 'z']) {
+    const node = ['radial', { axis, count: 6 },
+      ['translate', { x: 12, y: 0, z: 0 }, ['sphere', { radius: 5 }]]
+    ];
+    testContainment(node, WIDE_BOUNDS, 200);
+  }
+});
+
+test('radial with box near axis (rmin ≈ 0)', () => {
+  const node = ['radial', { axis: 'y', count: 6 },
+    ['translate', { x: 12, y: 0, z: 0 }, ['sphere', { radius: 5 }]]
+  ];
+  // Box centered on axis
+  testContainment(node, { min: [-3, -20, -3], max: [3, 20, 3] }, 200);
+});
+
+test('radial with box far from axis', () => {
+  const node = ['radial', { axis: 'y', count: 6 },
+    ['translate', { x: 12, y: 0, z: 0 }, ['sphere', { radius: 5 }]]
+  ];
+  // Box in one quadrant, far from axis
+  testContainment(node, { min: [8, -10, 8], max: [20, 10, 20] }, 300);
+});
+
+test('nested warps: twist inside radial', () => {
+  const node = ['radial', { axis: 'y', count: 4 },
+    ['translate', { x: 20, y: 0, z: 0 },
+      ['twist', { axis: 'y', rate: 0.1 }, ['cube', { size: 10 }]]
+    ]
+  ];
+  testContainment(node, { min: [-35, -25, -35], max: [35, 25, 35] }, 500);
+});
+
+test('nested warps: bend inside twist', () => {
+  const node = ['twist', { axis: 'y', rate: 0.1 },
+    ['bend', { axis: 'y', rate: 0.03 }, ['cube', { size: 20 }]]
+  ];
+  testContainment(node, WIDE_BOUNDS, 500);
+});
