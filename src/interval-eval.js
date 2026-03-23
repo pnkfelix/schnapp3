@@ -1,0 +1,366 @@
+// Interval evaluator for the S-expression AST.
+// Mirrors evalCSGField in evaluator.js but operates on interval ranges
+// instead of point values. Used by the octree to classify spatial regions
+// as entirely inside, entirely outside, or ambiguous (needs subdivision).
+//
+// Each primitive/combinator returns a function:
+//   (xIv, yIv, zIv) => { distance: [lo, hi], polarity: [loP, hiP] }
+// where xIv = [xlo, xhi], etc.
+
+import {
+  iadd, isub, imul, ineg, iabs, isqrt, isq,
+  imin, imax, imax0, imin0, imax3,
+  icos, isin, iatan2, imod, isoftmin, classify
+} from './interval.js';
+
+// Result when there's nothing
+const EMPTY_IV = { distance: [1e10, 1e10], polarity: [0, 0] };
+
+// Build an interval evaluator from an AST node.
+// Returns: (xIv, yIv, zIv) => { distance: [lo, hi], polarity: [loP, hiP] }
+// polarity interval: if both bounds > 0 → definitely solid
+//                    if both bounds < 0 → definitely anti-solid
+//                    if both bounds == 0 → definitely empty
+// For culling we mostly care about the distance interval.
+export function evalCSGFieldInterval(node) {
+  const type = node[0];
+
+  switch (type) {
+    case 'sphere': {
+      const r = node[1].radius || 15;
+      return (xIv, yIv, zIv) => {
+        // d = sqrt(x² + y² + z²) - r
+        const r2 = iadd(iadd(isq(xIv), isq(yIv)), isq(zIv));
+        const dist = isub(isqrt(r2), [r, r]);
+        return {
+          distance: dist,
+          polarity: dist[1] <= 0 ? [1, 1] : dist[0] > 0 ? [0, 0] : [0, 1]
+        };
+      };
+    }
+    case 'cube': {
+      const s = (node[1].size || 20) / 2;
+      return (xIv, yIv, zIv) => {
+        // q = abs(p) - s; outside = sqrt(max(q,0)²); inside = min(max(qx,qy,qz), 0)
+        const qx = isub(iabs(xIv), [s, s]);
+        const qy = isub(iabs(yIv), [s, s]);
+        const qz = isub(iabs(zIv), [s, s]);
+        const outside = isqrt(iadd(iadd(isq(imax0(qx)), isq(imax0(qy))), isq(imax0(qz))));
+        const inside = imin0(imax3(qx, qy, qz));
+        const dist = iadd(outside, inside);
+        return {
+          distance: dist,
+          polarity: dist[1] <= 0 ? [1, 1] : dist[0] > 0 ? [0, 0] : [0, 1]
+        };
+      };
+    }
+    case 'cylinder': {
+      const r = node[1].radius || 10;
+      const h = node[1].height || 30;
+      return (xIv, yIv, zIv) => {
+        // dx = sqrt(x² + z²) - r; dy = abs(y) - h/2
+        const dx = isub(isqrt(iadd(isq(xIv), isq(zIv))), [r, r]);
+        const dy = isub(iabs(yIv), [h / 2, h / 2]);
+        const outside = isqrt(iadd(isq(imax0(dx)), isq(imax0(dy))));
+        const inside = imin0(imax(dx, dy));
+        const dist = iadd(outside, inside);
+        return {
+          distance: dist,
+          polarity: dist[1] <= 0 ? [1, 1] : dist[0] > 0 ? [0, 0] : [0, 1]
+        };
+      };
+    }
+    case 'translate': {
+      const p = node[1];
+      const tx = p.x || 0, ty = p.y || 0, tz = p.z || 0;
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY_IV;
+      if (children.length === 1) {
+        const child = evalCSGFieldInterval(children[0]);
+        return (xIv, yIv, zIv) => child(
+          isub(xIv, [tx, tx]),
+          isub(yIv, [ty, ty]),
+          isub(zIv, [tz, tz])
+        );
+      }
+      const fields = children.map(c => evalCSGFieldInterval(c));
+      return (xIv, yIv, zIv) => {
+        const px = isub(xIv, [tx, tx]);
+        const py = isub(yIv, [ty, ty]);
+        const pz = isub(zIv, [tz, tz]);
+        return ivUnion(fields.map(f => f(px, py, pz)));
+      };
+    }
+    case 'paint': {
+      // Paint doesn't affect distance — pass through
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY_IV;
+      if (children.length === 1) return evalCSGFieldInterval(children[0]);
+      const fields = children.map(c => evalCSGFieldInterval(c));
+      return (xIv, yIv, zIv) => ivUnion(fields.map(f => f(xIv, yIv, zIv)));
+    }
+    case 'recolor': {
+      // Recolor doesn't affect distance — pass through
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY_IV;
+      if (children.length === 1) return evalCSGFieldInterval(children[0]);
+      const fields = children.map(c => evalCSGFieldInterval(c));
+      return (xIv, yIv, zIv) => ivUnion(fields.map(f => f(xIv, yIv, zIv)));
+    }
+    case 'union': {
+      const children = node.slice(1);
+      if (children.length === 0) return () => EMPTY_IV;
+      const fields = children.map(c => evalCSGFieldInterval(c));
+      return (xIv, yIv, zIv) => ivUnion(fields.map(f => f(xIv, yIv, zIv)));
+    }
+    case 'intersect': {
+      const children = node.slice(1);
+      if (children.length === 0) return () => EMPTY_IV;
+      const fields = children.map(c => evalCSGFieldInterval(c));
+      return (xIv, yIv, zIv) => ivIntersect(fields.map(f => f(xIv, yIv, zIv)));
+    }
+    case 'anti': {
+      const children = node.slice(1);
+      if (children.length === 0) return () => EMPTY_IV;
+      const child = evalCSGFieldInterval(children[0]);
+      return (xIv, yIv, zIv) => {
+        const r = child(xIv, yIv, zIv);
+        return { distance: r.distance, polarity: ineg(r.polarity) };
+      };
+    }
+    case 'complement': {
+      const children = node.slice(1);
+      if (children.length === 0) return () => EMPTY_IV;
+      const child = evalCSGFieldInterval(children[0]);
+      return (xIv, yIv, zIv) => {
+        const r = child(xIv, yIv, zIv);
+        return { distance: ineg(r.distance), polarity: r.polarity };
+      };
+    }
+    case 'fuse': {
+      const p = node[1];
+      const k = p.k || 5;
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY_IV;
+      const fields = children.map(c => evalCSGFieldInterval(c));
+      return (xIv, yIv, zIv) => {
+        const results = fields.map(f => f(xIv, yIv, zIv));
+        // Polarity: sum of polarities
+        let pLo = 0, pHi = 0;
+        for (const r of results) {
+          pLo += r.polarity[0];
+          pHi += r.polarity[1];
+        }
+        // Smooth min of distances
+        const dists = results.map(r => r.distance);
+        const dist = isoftmin(dists, k);
+        return { distance: dist, polarity: [Math.sign(pLo), Math.sign(pHi)] };
+      };
+    }
+    case 'mirror': {
+      const axis = node[1].axis || 'x';
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY_IV;
+      const child = evalCSGFieldInterval(children[0]);
+      return (xIv, yIv, zIv) => {
+        if (axis === 'x') return child(iabs(xIv), yIv, zIv);
+        if (axis === 'y') return child(xIv, iabs(yIv), zIv);
+        return child(xIv, yIv, iabs(zIv));
+      };
+    }
+    case 'twist': {
+      const axis = node[1].axis || 'y';
+      const rate = node[1].rate != null ? node[1].rate : 0.1;
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY_IV;
+      const child = evalCSGFieldInterval(children[0]);
+      // Twist is hard to bound tightly — use a conservative fallback:
+      // the distance can't be less than the child's distance minus the max rotation displacement
+      return (xIv, yIv, zIv) => {
+        let alongIv, uIv, vIv;
+        if (axis === 'y') { alongIv = yIv; uIv = xIv; vIv = zIv; }
+        else if (axis === 'x') { alongIv = xIv; uIv = yIv; vIv = zIv; }
+        else { alongIv = zIv; uIv = xIv; vIv = yIv; }
+        const angleIv = imul([- rate, -rate], alongIv);
+        const cosIv = icos(angleIv);
+        const sinIv = isin(angleIv);
+        // ru = cos*u - sin*v, rv = sin*u + cos*v
+        const ruIv = isub(imul(cosIv, uIv), imul(sinIv, vIv));
+        const rvIv = iadd(imul(sinIv, uIv), imul(cosIv, vIv));
+        if (axis === 'y') return child(ruIv, yIv, rvIv);
+        if (axis === 'x') return child(xIv, ruIv, rvIv);
+        return child(ruIv, rvIv, zIv);
+      };
+    }
+    case 'radial': {
+      // Radial is very hard to bound with intervals — fall back to conservative.
+      // We know the distance is bounded by the child evaluated at [0, maxRadius] for the
+      // folded sector, but the folding math is tricky in interval form.
+      // Conservative: evaluate child over the full radial extent.
+      const axis = node[1].axis || 'y';
+      const count = Math.max(2, Math.round(node[1].count || 6));
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY_IV;
+      const child = evalCSGFieldInterval(children[0]);
+      const sector = 2 * Math.PI / count;
+      return (xIv, yIv, zIv) => {
+        let uIv, vIv, wIv;
+        if (axis === 'y') { uIv = xIv; vIv = zIv; wIv = yIv; }
+        else if (axis === 'x') { uIv = yIv; vIv = zIv; wIv = xIv; }
+        else { uIv = xIv; vIv = yIv; wIv = zIv; }
+        // Max radius in this region
+        const r2 = iadd(isq(uIv), isq(vIv));
+        const rIv = isqrt(r2);
+        // After folding into sector, u ∈ [0, r], v ∈ [0, r*sin(sector/2)]
+        // Conservative: use [0, rmax] for both cross-section coords
+        const rmax = rIv[1];
+        const nuIv = [0, rmax];
+        const nvIv = [0, rmax * Math.sin(sector / 2)];
+        if (axis === 'y') return child(nuIv, wIv, nvIv);
+        if (axis === 'x') return child(wIv, nuIv, nvIv);
+        return child(nuIv, nvIv, wIv);
+      };
+    }
+    case 'stretch': {
+      const sx = node[1].sx != null ? node[1].sx : 1;
+      const sy = node[1].sy != null ? node[1].sy : 1;
+      const sz = node[1].sz != null ? node[1].sz : 1;
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY_IV;
+      const child = evalCSGFieldInterval(children[0]);
+      const minScale = Math.min(sx, sy, sz);
+      return (xIv, yIv, zIv) => {
+        const r = child(
+          imul(xIv, [1/sx, 1/sx]),
+          imul(yIv, [1/sy, 1/sy]),
+          imul(zIv, [1/sz, 1/sz])
+        );
+        return {
+          distance: imul(r.distance, [minScale, minScale]),
+          polarity: r.polarity
+        };
+      };
+    }
+    case 'tile': {
+      const axis = node[1].axis || 'x';
+      const spacing = node[1].spacing || 30;
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY_IV;
+      const child = evalCSGFieldInterval(children[0]);
+      const half = spacing / 2;
+      return (xIv, yIv, zIv) => {
+        // Tiling wraps coordinates — if the interval spans more than one period,
+        // the wrapped interval is the full [-half, half]
+        let txIv = xIv, tyIv = yIv, tzIv = zIv;
+        if (axis === 'x') {
+          txIv = (xIv[1] - xIv[0] >= spacing) ? [-half, half] : wrapInterval(xIv, spacing);
+        } else if (axis === 'y') {
+          tyIv = (yIv[1] - yIv[0] >= spacing) ? [-half, half] : wrapInterval(yIv, spacing);
+        } else {
+          tzIv = (zIv[1] - zIv[0] >= spacing) ? [-half, half] : wrapInterval(zIv, spacing);
+        }
+        return child(txIv, tyIv, tzIv);
+      };
+    }
+    case 'bend': {
+      const axis = node[1].axis || 'y';
+      const rate = node[1].rate != null ? node[1].rate : 0.05;
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY_IV;
+      const child = evalCSGFieldInterval(children[0]);
+      if (rate === 0) return child;
+      // Bend is a nonlinear coordinate transform — use conservative bounding.
+      // The transform preserves distances approximately, so we can evaluate the
+      // child over a widened input interval.
+      return (xIv, yIv, zIv) => {
+        let alongIv, perpIv, wIv;
+        if (axis === 'y') { alongIv = xIv; perpIv = yIv; wIv = zIv; }
+        else if (axis === 'x') { alongIv = yIv; perpIv = xIv; wIv = zIv; }
+        else { alongIv = xIv; perpIv = zIv; wIv = yIv; }
+        const angleIv = imul(alongIv, [rate, rate]);
+        const cosIv = icos(angleIv);
+        const sinIv = isin(angleIv);
+        const invRate = 1 / rate;
+        const rIv = iadd(perpIv, [invRate, invRate]);
+        const naIv = imul(sinIv, rIv);
+        const npIv = isub(imul(cosIv, rIv), [invRate, invRate]);
+        if (axis === 'y') return child(naIv, npIv, wIv);
+        if (axis === 'x') return child(npIv, naIv, wIv);
+        return child(naIv, wIv, npIv);
+      };
+    }
+    case 'taper': {
+      const axis = node[1].axis || 'y';
+      const rate = node[1].rate != null ? node[1].rate : 0.02;
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY_IV;
+      const child = evalCSGFieldInterval(children[0]);
+      return (xIv, yIv, zIv) => {
+        let alongIv, uIv, vIv;
+        if (axis === 'y') { alongIv = yIv; uIv = xIv; vIv = zIv; }
+        else if (axis === 'x') { alongIv = xIv; uIv = yIv; vIv = zIv; }
+        else { alongIv = zIv; uIv = xIv; vIv = yIv; }
+        // scale = max(0.01, 1 + rate * along)
+        const rawScale = iadd([1, 1], imul([rate, rate], alongIv));
+        const scaleIv = [Math.max(0.01, rawScale[0]), Math.max(0.01, rawScale[1])];
+        const invScaleIv = [1 / scaleIv[1], 1 / scaleIv[0]];
+        const suIv = imul(uIv, invScaleIv);
+        const svIv = imul(vIv, invScaleIv);
+        let result;
+        if (axis === 'y') result = child(suIv, yIv, svIv);
+        else if (axis === 'x') result = child(xIv, suIv, svIv);
+        else result = child(suIv, svIv, zIv);
+        return {
+          distance: imul(result.distance, scaleIv),
+          polarity: result.polarity
+        };
+      };
+    }
+    default:
+      return () => ({ distance: [0, 0], polarity: [0, 0] });
+  }
+}
+
+// --- Interval CSG combinators ---
+
+// Union: distance = min of all distances
+function ivUnion(results) {
+  let dist = results[0].distance;
+  let pLo = 0, pHi = 0;
+  for (const r of results) {
+    dist = imin(dist, r.distance);
+    pLo += r.polarity[0];
+    pHi += r.polarity[1];
+  }
+  return { distance: dist, polarity: [Math.sign(pLo), Math.sign(pHi)] };
+}
+
+// Intersect: distance = max of all distances
+function ivIntersect(results) {
+  let dist = results[0].distance;
+  let pLo = 1, pHi = 1;
+  for (const r of results) {
+    dist = imax(dist, r.distance);
+    pLo *= r.polarity[0];
+    pHi *= r.polarity[1];
+  }
+  // Sort polarity bounds
+  const pMin = Math.min(pLo, pHi);
+  const pMax = Math.max(pLo, pHi);
+  return { distance: dist, polarity: [pMin, pMax] };
+}
+
+// --- Helper ---
+
+// Wrap an interval into [-half, half] for tiling
+function wrapInterval(iv, spacing) {
+  const half = spacing / 2;
+  // If the interval is narrow enough, we can wrap it
+  const lo = ((iv[0] % spacing) + spacing + half) % spacing - half;
+  const hi = lo + (iv[1] - iv[0]);
+  if (hi > half) {
+    // Wraps around — return full range
+    return [-half, half];
+  }
+  return [lo, hi];
+}
