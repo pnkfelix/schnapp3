@@ -52,6 +52,7 @@ async function main() {
   // Import test modules (they register via side effects calling suite/test)
   await import('./interval-tests.js');
   await import('./interval-containment-tests.js');
+  await import('./fp-audit.js');
 
   console.log(`\n  ${passed + failed} tests: ${passed} passed, ${failed} failed\n`);
   process.exit(failed > 0 ? 1 : 0);
