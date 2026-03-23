@@ -26,7 +26,7 @@ const DEFAULT_MODELS = {
     (union
       (paint :color "green"
         (fuse :k 5
-          (translate 20 0 0
+          (translate 18 0 0
             (cube 10))
           (sphere 15)))
       (anti
