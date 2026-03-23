@@ -1,7 +1,9 @@
 import { createViewport } from './viewport.js';
 import { initPalette, initWorkspace, renderWorkspace, subscribe, getRootBlocks, addBlockToRoot, addBlockAsChild, updateParam, replaceFromAST } from './blocks.js';
 import { generateAST, formatSExpr } from './codegen.js';
-import { evaluate, getResolution, setResolution } from './evaluator.js';
+import { evaluate, getResolution, setResolution, getUseOctree, setUseOctree, needsFieldEval } from './evaluator.js';
+import { meshProgressive } from './progressive.js';
+import { resToDepth } from './octree-core.js';
 import { parseSExpr } from './parser.js';
 
 // Boot viewport
@@ -103,8 +105,12 @@ const COMMANDS = [
   { text: 'resolution 48', hint: 'default (fast)' },
   { text: 'resolution 72', hint: 'medium' },
   { text: 'resolution 96', hint: 'fine' },
-  { text: 'resolution 128', hint: 'very fine (slow)' },
+  { text: 'resolution 128', hint: 'very fine' },
+  { text: 'resolution 256', hint: 'ultra (octree recommended)' },
+  { text: 'resolution 512', hint: 'extreme (octree only)' },
   { text: 'reset', hint: 'restore default model' },
+  { text: 'octree', hint: 'toggle octree acceleration on/off' },
+  { text: 'progressive', hint: 'toggle progressive refinement on/off' },
   ...Object.keys(DEFAULT_MODELS).map(name => ({
     text: `reset ${name}`, hint: `load ${name} model`
   })),
@@ -165,6 +171,20 @@ function executeCommand(text) {
       codeEditedManually = false;
       runPipeline();
     }
+    commandInput.value = '';
+    commandInput.blur();
+    return;
+  }
+  if (parts[0] === 'octree') {
+    setUseOctree(!getUseOctree());
+    runPipeline();
+    commandInput.value = '';
+    commandInput.blur();
+    return;
+  }
+  if (parts[0] === 'progressive') {
+    useProgressiveMode = !useProgressiveMode;
+    runPipeline();
     commandInput.value = '';
     commandInput.blur();
     return;
@@ -232,7 +252,21 @@ function appendHudEntry(stats) {
   hudEntryCount++;
   const entry = document.createElement('div');
   entry.className = 'hud-entry';
-  entry.textContent = `#${hudEntryCount} | ${stats.meshTime}ms | res ${stats.resolution} | ${stats.voxels.toLocaleString()} voxels | ${stats.nodes} nodes`;
+  let text = `#${hudEntryCount} | ${stats.meshTime}ms | res ${stats.resolution} | ${stats.voxels.toLocaleString()} evals | ${stats.nodes} nodes`;
+  if (stats.octree) {
+    const o = stats.octree;
+    const pct = o.nodesVisited > 0
+      ? Math.round(100 * (o.nodesCulledOutside + o.nodesCulledInside) / o.nodesVisited)
+      : 0;
+    if (o.bailedOut) {
+      text += ` | octree: bailed out (${pct}% cull @ depth 3), fell back to uniform`;
+    } else {
+      text += ` | octree: ${o.leafCells} leaves, ${pct}% culled (${o.nodesCulledOutside}out+${o.nodesCulledInside}in of ${o.nodesVisited})`;
+    }
+  } else {
+    text += ` | uniform grid`;
+  }
+  entry.textContent = text;
   hudEl.appendChild(entry);
   // Trim old entries
   while (hudEl.children.length > MAX_HUD_ENTRIES) {
@@ -246,6 +280,41 @@ const codeOutput = document.getElementById('code-output');
 const meshingIndicator = document.getElementById('meshing-indicator');
 let pipelinePending = false;
 
+let meshingStartTime = 0;
+let meshingTimerId = null;
+let meshingLastDepths = [];
+
+function formatElapsed(ms) {
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+function renderMeshingIndicator() {
+  const elapsed = formatElapsed(performance.now() - meshingStartTime);
+  const resolutions = meshingLastDepths.map(d => 1 << d);
+  meshingIndicator.textContent = `Meshing ${resolutions.join(', ')}... ${elapsed}`;
+}
+
+function updateMeshingStatus(inFlightDepths) {
+  meshingLastDepths = inFlightDepths;
+  if (inFlightDepths.length === 0) {
+    if (meshingTimerId) { clearInterval(meshingTimerId); meshingTimerId = null; }
+  } else {
+    if (!meshingTimerId) {
+      meshingStartTime = performance.now();
+      meshingTimerId = setInterval(renderMeshingIndicator, 100);
+    }
+    renderMeshingIndicator();
+  }
+}
+
+function stopMeshingTimer() {
+  if (meshingTimerId) { clearInterval(meshingTimerId); meshingTimerId = null; }
+  meshingIndicator.textContent = 'Meshing...';
+}
+
+let cancelProgressive = null;
+let useProgressiveMode = true;
+
 function runPipeline() {
   if (codeEditedManually) return;
   const roots = getRootBlocks();
@@ -258,19 +327,54 @@ function runPipeline() {
   // Persist to localStorage
   try { localStorage.setItem('schnapp3_model', sexpr); } catch (e) {}
 
-  // Show indicator, yield a frame so the browser paints it, then mesh
-  if (pipelinePending) return;
-  pipelinePending = true;
-  meshingIndicator.classList.add('visible');
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      const { group, stats } = evaluate(ast);
+  // Cancel any in-flight progressive mesh from previous edit
+  if (cancelProgressive) {
+    cancelProgressive();
+    cancelProgressive = null;
+    stopMeshingTimer();
+  }
+
+  // Decide: use progressive workers for CSG models, sync for simple ones
+  const useProgressive = useProgressiveMode && ast && needsFieldEval(ast);
+
+  if (useProgressive) {
+    meshingIndicator.classList.add('visible');
+    pipelinePending = true;
+
+    const targetDepth = resToDepth(getResolution());
+    cancelProgressive = meshProgressive(ast, targetDepth, getUseOctree(), (group, depth, stats, isFinal) => {
       viewport.setContent(group);
-      appendHudEntry(stats);
-      meshingIndicator.classList.remove('visible');
-      pipelinePending = false;
+      if (stats) {
+        appendHudEntry({
+          meshTime: stats.meshTime,
+          resolution: stats.resolution,
+          voxels: stats.octree ? (stats.octree.pointEvals || 0) : 0,
+          nodes: stats.octree ? (stats.octree.leafCells || 0) : 0,
+          octree: stats.octree
+        });
+      }
+      if (isFinal) {
+        meshingIndicator.classList.remove('visible');
+        stopMeshingTimer();
+        pipelinePending = false;
+        cancelProgressive = null;
+      }
+    }, updateMeshingStatus);
+  } else {
+    // Simple model — sync eval (instant)
+    if (pipelinePending) return;
+    pipelinePending = true;
+    meshingIndicator.classList.add('visible');
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const { group, stats } = evaluate(ast);
+        viewport.setContent(group);
+        appendHudEntry(stats);
+        meshingIndicator.classList.remove('visible');
+        pipelinePending = false;
+      });
     });
-  });
+  }
 }
 
 subscribe(() => {
@@ -288,9 +392,33 @@ codeOutput.addEventListener('input', () => {
     if (ast) {
       replaceFromAST(ast);
       renderWorkspace();
-      const { group, stats } = evaluate(ast);
-      viewport.setContent(group);
-      appendHudEntry(stats);
+
+      // Cancel previous progressive
+      if (cancelProgressive) { cancelProgressive(); cancelProgressive = null; stopMeshingTimer(); }
+
+      if (useProgressiveMode && needsFieldEval(ast)) {
+        const targetDepth = resToDepth(getResolution());
+        meshingIndicator.classList.add('visible');
+        cancelProgressive = meshProgressive(ast, targetDepth, getUseOctree(), (group, depth, stats, isFinal) => {
+          viewport.setContent(group);
+          if (stats) {
+            appendHudEntry({
+              meshTime: stats.meshTime, resolution: stats.resolution,
+              voxels: stats.octree ? (stats.octree.pointEvals || 0) : 0,
+              nodes: stats.octree ? (stats.octree.leafCells || 0) : 0, octree: stats.octree
+            });
+          }
+          if (isFinal) {
+            meshingIndicator.classList.remove('visible');
+            stopMeshingTimer();
+            cancelProgressive = null;
+          }
+        }, updateMeshingStatus);
+      } else {
+        const { group, stats } = evaluate(ast);
+        viewport.setContent(group);
+        appendHudEntry(stats);
+      }
       try { localStorage.setItem('schnapp3_model', codeOutput.value); } catch (e) {}
     }
     codeOutput.style.color = '#a0d0a0';

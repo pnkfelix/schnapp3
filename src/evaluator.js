@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { meshField } from './surface-nets.js';
+import { evalCSGFieldInterval } from './interval-eval.js';
+import { buildOctree, meshOctreeLeaves, resToDepth } from './octree-mesh.js';
 
 // S-expression AST → Three.js geometry
 // Consumes the structured AST from codegen.js, knows nothing about blocks.
@@ -39,7 +41,7 @@ const UNSET_RGB = DEFAULT_RGB;
 // Does this AST node (or any subtree) require CSG field evaluation?
 // If so, we must mesh the entire subtree via surface-nets rather than
 // using Three.js primitives.
-function needsFieldEval(node) {
+export function needsFieldEval(node) {
   const type = node[0];
   if (type === 'intersect' || type === 'anti' || type === 'complement' || type === 'fuse'
       || type === 'mirror' || type === 'twist' || type === 'radial'
@@ -54,9 +56,12 @@ function needsFieldEval(node) {
 }
 
 let evalStats = null;
+let useOctree = true;
+export function getUseOctree() { return useOctree; }
+export function setUseOctree(v) { useOctree = v; }
 
 export function evaluate(ast) {
-  evalStats = { nodes: 0, voxels: 0, meshTime: 0, resolution: csgResolution };
+  evalStats = { nodes: 0, voxels: 0, meshTime: 0, resolution: csgResolution, octree: null };
   const t0 = performance.now();
   if (!ast) return { group: new THREE.Group(), stats: evalStats };
   const result = evalNode(ast);
@@ -182,16 +187,15 @@ function evalNode(node) {
 
 let csgResolution = 48;
 export function getResolution() { return csgResolution; }
-export function setResolution(n) { csgResolution = Math.max(16, Math.min(192, n)); }
+export function setResolution(n) { csgResolution = Math.max(16, n); }
 
 function meshCSGNode(node) {
   const res = csgResolution;
-  if (evalStats) evalStats.voxels += (res + 1) ** 3;
   const bounds = estimateBounds(node);
   const csgField = evalCSGField(node);
   const group = new THREE.Group();
 
-  // Solid mesh (polarity > 0) with per-vertex color from the field
+  // Solid field: positive polarity → use SDF distance; otherwise push outside
   const solidField = (x, y, z) => {
     const { polarity, distance } = csgField(x, y, z);
     if (polarity > 0) return distance;
@@ -202,6 +206,99 @@ function meshCSGNode(node) {
     return c === UNSET_COLOR ? UNSET_RGB : c;
   };
 
+  // Anti field: negative polarity → use SDF distance
+  const antiField = (x, y, z) => {
+    const { polarity, distance } = csgField(x, y, z);
+    if (polarity < 0) return distance;
+    return Math.abs(distance) + 0.01;
+  };
+
+  if (useOctree) {
+    // ---- Octree-accelerated path ----
+    const depth = resToDepth(res);
+    const octreeStats = {
+      nodesVisited: 0, nodesCulledOutside: 0, nodesCulledInside: 0,
+      leafCells: 0, activeCells: 0, surfaceVerts: 0, pointEvals: 0, faces: 0
+    };
+
+    // Build interval evaluator for solid field
+    let intervalField;
+    try {
+      intervalField = evalCSGFieldInterval(node);
+    } catch (e) {
+      console.warn('Octree interval eval failed, falling back to uniform grid:', e);
+      return meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField);
+    }
+
+    // For the solid mesh, the actual field is:
+    //   polarity > 0  → distance  (the SDF)
+    //   polarity <= 0 → abs(distance) + 0.01  (always positive → no surface)
+    // So if the polarity interval is entirely <= 0, there's no solid surface.
+    // If distance interval is entirely > 0, there's no surface either.
+    // We return { distance: [lo, hi] } for the octree classifier.
+    const solidIntervalField = (xIv, yIv, zIv) => {
+      const r = intervalField(xIv, yIv, zIv);
+      // If polarity can never be > 0, this region has no solid → push distance positive
+      if (r.polarity[1] <= 0) {
+        return { distance: [0.01, Infinity], polarity: [0, 0] };
+      }
+      return r;
+    };
+
+    const leaves = buildOctree(solidIntervalField, bounds, depth, octreeStats);
+
+    // buildOctree returns null if it bailed out (interval arithmetic wasn't helping)
+    if (leaves === null) {
+      if (evalStats) {
+        octreeStats.bailedOut = true;
+        evalStats.octree = octreeStats;
+      }
+      return meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField);
+    }
+
+    const solidGeo = meshOctreeLeaves(leaves, solidField, bounds, depth, solidColorField, octreeStats);
+
+    if (solidGeo.index && solidGeo.index.count > 0) {
+      const solidMat = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        side: THREE.DoubleSide
+      });
+      group.add(new THREE.Mesh(solidGeo, solidMat));
+    }
+
+    // Anti-solid: use uniform grid (anti-solids are typically small/rare)
+    if (evalStats) evalStats.voxels += (res + 1) ** 3;
+    const antiGeo = meshField(antiField, bounds, res);
+    if (antiGeo.index && antiGeo.index.count > 0) {
+      const antiMat = new THREE.MeshStandardMaterial({
+        color: 0xcc4444,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.35,
+        depthWrite: false
+      });
+      group.add(new THREE.Mesh(antiGeo, antiMat));
+    }
+
+    // Record stats
+    if (evalStats) {
+      evalStats.octree = octreeStats;
+      evalStats.voxels += octreeStats.pointEvals;
+    }
+
+  } else {
+    // ---- Original uniform grid path ----
+    return meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField);
+  }
+
+  return group;
+}
+
+// Original uniform-grid meshing (fallback)
+function meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField) {
+  if (evalStats) evalStats.voxels += (res + 1) ** 3;
+  const group = new THREE.Group();
+
   const solidGeo = meshField(solidField, bounds, res, solidColorField);
   if (solidGeo.index && solidGeo.index.count > 0) {
     const solidMat = new THREE.MeshStandardMaterial({
@@ -210,13 +307,6 @@ function meshCSGNode(node) {
     });
     group.add(new THREE.Mesh(solidGeo, solidMat));
   }
-
-  // Anti-solid mesh (polarity < 0): translucent ghost
-  const antiField = (x, y, z) => {
-    const { polarity, distance } = csgField(x, y, z);
-    if (polarity < 0) return distance;
-    return Math.abs(distance) + 0.01;
-  };
 
   const antiGeo = meshField(antiField, bounds, res);
   if (antiGeo.index && antiGeo.index.count > 0) {
