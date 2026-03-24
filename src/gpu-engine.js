@@ -835,7 +835,6 @@ async function _gpuOctreeAtDepth(ast, tape, bounds, depth) {
   }
 
   // Collect unique grid corner points using a flat Int32Array (-1 = not needed)
-  const totalGridPts = gn * gn * gn;
   const pointKeyToIdx = new Int32Array(totalGridPts).fill(-1);
   let numPoints = 0;
 
