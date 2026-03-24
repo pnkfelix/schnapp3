@@ -5,7 +5,8 @@ import { evaluate, getResolution, setResolution, getUseOctree, setUseOctree, nee
 import { meshProgressive } from './progressive.js';
 import { resToDepth } from './octree-core.js';
 import { parseSExpr } from './parser.js';
-import { initGPU, gpuEvaluate, isGPUAvailable } from './gpu-engine.js';
+import { initGPU, gpuEvaluate, gpuEvaluateOctree, isGPUAvailable } from './gpu-engine.js';
+import { runBenchmark } from './benchmark.js';
 
 // Boot viewport
 const viewport = createViewport(document.getElementById('viewport-panel'));
@@ -117,6 +118,9 @@ const COMMANDS = [
   { text: 'octree', hint: 'toggle octree acceleration on/off' },
   { text: 'progressive', hint: 'toggle progressive refinement on/off' },
   { text: 'gpu', hint: 'toggle WebGPU SDF evaluation on/off' },
+  { text: 'bench', hint: 'run GPU vs CPU performance benchmark' },
+  { text: 'bench 48', hint: 'benchmark at resolution 48 only' },
+  { text: 'bench 96', hint: 'benchmark at resolution 96 only' },
   ...Object.keys(DEFAULT_MODELS).map(name => ({
     text: `reset ${name}`, hint: `load ${name} model`
   })),
@@ -197,6 +201,12 @@ function executeCommand(text) {
   }
   if (parts[0] === 'gpu') {
     toggleGPUMode();
+    commandInput.value = '';
+    commandInput.blur();
+    return;
+  }
+  if (parts[0] === 'bench') {
+    runBench(parts[1] ? parseInt(parts[1], 10) : null);
     commandInput.value = '';
     commandInput.blur();
     return;
@@ -349,12 +359,59 @@ async function toggleGPUMode() {
   runPipeline();
 }
 
+async function runBench(singleRes) {
+  // Ensure GPU is initialized
+  if (!gpuInitialized) {
+    gpuInitialized = true;
+    meshingIndicator.classList.add('visible');
+    meshingIndicator.textContent = 'Initializing WebGPU for benchmark...';
+    await initGPU();
+    meshingIndicator.classList.remove('visible');
+  }
+
+  // Show HUD if hidden
+  if (!hudEl.classList.contains('visible')) {
+    hudEl.classList.add('visible');
+  }
+
+  meshingIndicator.classList.add('visible');
+  meshingIndicator.textContent = 'Running benchmark...';
+
+  // Use requestAnimationFrame to let UI update before blocking
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+  const resolutions = singleRes ? [singleRes] : [24, 48, 72, 96];
+  const { results, formatted } = await runBenchmark(resolutions);
+
+  // Display results in HUD
+  const entry = document.createElement('div');
+  entry.className = 'hud-entry';
+  entry.style.whiteSpace = 'pre';
+  entry.style.fontFamily = 'monospace';
+  entry.style.fontSize = '10px';
+  entry.textContent = formatted;
+  hudEl.appendChild(entry);
+  hudEl.scrollTop = hudEl.scrollHeight;
+
+  // Also log to console
+  console.log(formatted);
+
+  meshingIndicator.classList.remove('visible');
+}
+
 async function runGPUPipeline(ast) {
   meshingIndicator.classList.add('visible');
   meshingIndicator.textContent = 'GPU meshing...';
   pipelinePending = true;
   try {
-    const result = await gpuEvaluate(ast, getResolution());
+    // Use octree+GPU when octree is enabled, uniform GPU otherwise
+    let result = null;
+    if (getUseOctree()) {
+      result = await gpuEvaluateOctree(ast, getResolution());
+    }
+    if (!result) {
+      result = await gpuEvaluate(ast, getResolution());
+    }
     if (result) {
       viewport.setContent(result.group);
       appendHudEntry(result.stats);
