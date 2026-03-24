@@ -5,6 +5,7 @@ import { evaluate, getResolution, setResolution, getUseOctree, setUseOctree, nee
 import { meshProgressive } from './progressive.js';
 import { resToDepth } from './octree-core.js';
 import { parseSExpr } from './parser.js';
+import { initGPU, gpuEvaluate, isGPUAvailable } from './gpu-engine.js';
 
 // Boot viewport
 const viewport = createViewport(document.getElementById('viewport-panel'));
@@ -75,6 +76,10 @@ const DEFAULT_MODELS = {
 
 const DEFAULT_MODEL_NAME = 'lizard';
 
+// GPU mode state
+let useGPUMode = false;
+let gpuInitialized = false;
+
 // ---- Command bar ----
 
 const PANEL_NAMES = ['blocks', 'code', '3d'];
@@ -111,6 +116,7 @@ const COMMANDS = [
   { text: 'reset', hint: 'restore default model' },
   { text: 'octree', hint: 'toggle octree acceleration on/off' },
   { text: 'progressive', hint: 'toggle progressive refinement on/off' },
+  { text: 'gpu', hint: 'toggle WebGPU SDF evaluation on/off' },
   ...Object.keys(DEFAULT_MODELS).map(name => ({
     text: `reset ${name}`, hint: `load ${name} model`
   })),
@@ -189,6 +195,12 @@ function executeCommand(text) {
     commandInput.blur();
     return;
   }
+  if (parts[0] === 'gpu') {
+    toggleGPUMode();
+    commandInput.value = '';
+    commandInput.blur();
+    return;
+  }
   if (parts[0] === 'resolution' && parts[1]) {
     const n = parseInt(parts[1], 10);
     if (!isNaN(n)) {
@@ -253,6 +265,9 @@ function appendHudEntry(stats) {
   const entry = document.createElement('div');
   entry.className = 'hud-entry';
   let text = `#${hudEntryCount} | ${stats.meshTime}ms | res ${stats.resolution} | ${stats.voxels.toLocaleString()} evals | ${stats.nodes} nodes`;
+  if (stats.gpu) {
+    text += ' | GPU';
+  }
   if (stats.octree) {
     const o = stats.octree;
     const pct = o.nodesVisited > 0
@@ -315,6 +330,46 @@ function stopMeshingTimer() {
 let cancelProgressive = null;
 let useProgressiveMode = true;
 
+async function toggleGPUMode() {
+  if (!gpuInitialized) {
+    gpuInitialized = true;
+    meshingIndicator.classList.add('visible');
+    meshingIndicator.textContent = 'Initializing WebGPU...';
+    const ok = await initGPU();
+    meshingIndicator.classList.remove('visible');
+    if (!ok) {
+      commandInput.style.borderColor = '#e94560';
+      setTimeout(() => { commandInput.style.borderColor = ''; }, 1000);
+      console.warn('WebGPU not available');
+      return;
+    }
+  }
+  useGPUMode = !useGPUMode;
+  console.log('GPU mode:', useGPUMode ? 'ON' : 'OFF');
+  runPipeline();
+}
+
+async function runGPUPipeline(ast) {
+  meshingIndicator.classList.add('visible');
+  meshingIndicator.textContent = 'GPU meshing...';
+  pipelinePending = true;
+  try {
+    const result = await gpuEvaluate(ast, getResolution());
+    if (result) {
+      viewport.setContent(result.group);
+      appendHudEntry(result.stats);
+    }
+  } catch (e) {
+    console.error('GPU pipeline failed:', e);
+    // Fall back to CPU
+    const { group, stats } = evaluate(ast);
+    viewport.setContent(group);
+    appendHudEntry(stats);
+  }
+  meshingIndicator.classList.remove('visible');
+  pipelinePending = false;
+}
+
 function runPipeline() {
   if (codeEditedManually) return;
   const roots = getRootBlocks();
@@ -332,6 +387,12 @@ function runPipeline() {
     cancelProgressive();
     cancelProgressive = null;
     stopMeshingTimer();
+  }
+
+  // GPU path: send to WebGPU compute shader
+  if (useGPUMode && isGPUAvailable() && ast) {
+    runGPUPipeline(ast);
+    return;
   }
 
   // Decide: use progressive workers for CSG models, sync for simple ones
@@ -396,7 +457,9 @@ codeOutput.addEventListener('input', () => {
       // Cancel previous progressive
       if (cancelProgressive) { cancelProgressive(); cancelProgressive = null; stopMeshingTimer(); }
 
-      if (useProgressiveMode && needsFieldEval(ast)) {
+      if (useGPUMode && isGPUAvailable()) {
+        runGPUPipeline(ast);
+      } else if (useProgressiveMode && needsFieldEval(ast)) {
         const targetDepth = resToDepth(getResolution());
         meshingIndicator.classList.add('visible');
         cancelProgressive = meshProgressive(ast, targetDepth, getUseOctree(), (group, depth, stats, isFinal) => {
