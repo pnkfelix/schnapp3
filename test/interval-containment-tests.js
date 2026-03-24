@@ -544,3 +544,109 @@ test('nested warps: bend inside twist', () => {
   ];
   testContainment(node, WIDE_BOUNDS, 500);
 });
+
+// --- Polar-aware radial culling stress tests ---
+// These target the angular folding logic: sector boundaries, mirror line,
+// cells in every quadrant, cells near the atan2 discontinuity.
+
+suite('containment: polar-aware radial stress tests');
+
+test('radial: cells in all four quadrants', () => {
+  const node = ['radial', { axis: 'y', count: 6 },
+    ['translate', { x: 12, y: 0, z: 0 }, ['sphere', { radius: 5 }]]
+  ];
+  // Sample from all quadrants to test atan2 in all angle ranges
+  for (const [xOff, zOff] of [[10,10], [-10,10], [-10,-10], [10,-10]]) {
+    testContainment(node, {
+      min: [xOff - 5, -5, zOff - 5],
+      max: [xOff + 5, 5, zOff + 5]
+    }, 200);
+  }
+});
+
+test('radial: cell straddling sector boundary', () => {
+  // With count=6, sector = π/3 ≈ 1.047. A cell near θ = π/3 straddles boundary.
+  // At θ=π/3: x=r*cos(π/3)=r/2, z=r*sin(π/3)=r*√3/2
+  // For r=12: x=6, z=10.39
+  const node = ['radial', { axis: 'y', count: 6 },
+    ['translate', { x: 12, y: 0, z: 0 }, ['sphere', { radius: 5 }]]
+  ];
+  testContainment(node, { min: [4, -5, 9], max: [8, 5, 12] }, 300);
+});
+
+test('radial: cell near atan2 discontinuity (negative x, z≈0)', () => {
+  // atan2 jumps from π to -π at x<0, z=0
+  const node = ['radial', { axis: 'y', count: 6 },
+    ['translate', { x: 12, y: 0, z: 0 }, ['sphere', { radius: 5 }]]
+  ];
+  testContainment(node, { min: [-15, -5, -2], max: [-8, 5, 2] }, 300);
+});
+
+test('radial: cell on x-axis (z=0, x>0) — angle=0', () => {
+  const node = ['radial', { axis: 'y', count: 6 },
+    ['translate', { x: 12, y: 0, z: 0 }, ['sphere', { radius: 5 }]]
+  ];
+  testContainment(node, { min: [8, -5, -1], max: [16, 5, 1] }, 300);
+});
+
+test('radial: wide intervals spanning multiple sectors', () => {
+  const node = ['radial', { axis: 'y', count: 6 },
+    ['translate', { x: 12, y: 0, z: 0 }, ['sphere', { radius: 5 }]]
+  ];
+  const pointField = evalCSGField(node);
+  const intervalField = evalCSGFieldInterval(node);
+  const rng = makeRng(123);
+
+  for (let i = 0; i < 200; i++) {
+    const x = -20 + rng() * 40;
+    const y = -10 + rng() * 20;
+    const z = -20 + rng() * 40;
+    const w = 2 + rng() * 8; // wide intervals (2-10 units)
+
+    const pointResult = pointField(x, y, z);
+    const ivResult = intervalField([x, x + w], [y, y + w], [z, z + w]);
+
+    assertContains(
+      ivResult.distance,
+      pointResult.distance,
+      `wide radial at (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)}), w=${w.toFixed(2)}`
+    );
+  }
+});
+
+test('radial count=3: wide sectors', () => {
+  // sector = 2π/3 ≈ 2.09, halfSector ≈ 1.047
+  const node = ['radial', { axis: 'y', count: 3 },
+    ['translate', { x: 10, y: 0, z: 0 }, ['cube', { size: 6 }]]
+  ];
+  testContainment(node, WIDE_BOUNDS, 500);
+});
+
+test('radial count=8: narrow sectors', () => {
+  // sector = π/4 ≈ 0.785, halfSector ≈ 0.393
+  const node = ['radial', { axis: 'y', count: 8 },
+    ['translate', { x: 15, y: 0, z: 0 }, ['sphere', { radius: 4 }]]
+  ];
+  testContainment(node, WIDE_BOUNDS, 500);
+});
+
+test('radial with cube child (non-spherical)', () => {
+  const node = ['radial', { axis: 'y', count: 6 },
+    ['translate', { x: 12, y: 0, z: 0 }, ['cube', { size: 8 }]]
+  ];
+  testContainment(node, WIDE_BOUNDS, 500);
+});
+
+test('radial z-axis', () => {
+  const node = ['radial', { axis: 'z', count: 6 },
+    ['translate', { x: 12, y: 0, z: 0 }, ['sphere', { radius: 5 }]]
+  ];
+  testContainment(node, WIDE_BOUNDS, 500);
+});
+
+test('radial x-axis', () => {
+  const node = ['radial', { axis: 'x', count: 6 },
+    ['translate', { x: 0, y: 12, z: 0 }, ['sphere', { radius: 5 }]]
+  ];
+  testContainment(node, WIDE_BOUNDS, 500);
+});

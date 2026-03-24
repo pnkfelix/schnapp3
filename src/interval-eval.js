@@ -236,10 +236,14 @@ export function evalCSGFieldInterval(node) {
       };
     }
     case 'radial': {
-      // Warp-aware bounding: radial symmetry preserves distance from axis.
-      // A point at radius r maps to (r*cos(θ'), r*sin(θ')) where θ' is the
-      // folded angle in [0, sector/2]. We compute tight radius bounds [rmin, rmax]
-      // for the input box and use them to bound the output coordinates.
+      // Polar-aware culling: instead of mapping the entire Cartesian cell to
+      // full-sector-width output bounds, compute the cell's angular interval
+      // via iatan2, fold it into the fundamental sector [0, halfSector], and
+      // produce tight output intervals. This lets the child evaluator
+      // distinguish "on the object" from "between copies" at the same radius.
+      //
+      // Falls back to full-sector bounds when the cell straddles the axis
+      // (angular interval is [-π, π]) or spans more than one sector.
       const axis = node[1].axis || 'y';
       const count = Math.max(2, Math.round(node[1].count || 6));
       const children = node.slice(2);
@@ -255,27 +259,85 @@ export function evalCSGFieldInterval(node) {
         else if (axis === 'x') { uIv = yIv; vIv = zIv; wIv = xIv; }
         else { uIv = xIv; vIv = yIv; wIv = zIv; }
         // Compute radius interval [rmin, rmax]
-        // rmax = max corner distance from axis
         const rmax = Math.sqrt(
           Math.max(uIv[0] * uIv[0], uIv[1] * uIv[1]) +
           Math.max(vIv[0] * vIv[0], vIv[1] * vIv[1])
         );
-        // rmin: minimum distance from axis for box [uLo,uHi] x [vLo,vHi]
-        // If box contains the axis (both intervals span 0), rmin = 0
         let rmin;
         if (uIv[0] <= 0 && uIv[1] >= 0 && vIv[0] <= 0 && vIv[1] >= 0) {
           rmin = 0;
         } else {
-          // Closest point on box to axis: clamp (0,0) to box
           const cu = Math.max(uIv[0], Math.min(0, uIv[1]));
           const cv = Math.max(vIv[0], Math.min(0, vIv[1]));
           rmin = Math.sqrt(cu * cu + cv * cv);
         }
-        // After folding into [0, halfSector]:
-        //   output u ∈ [rmin * cos(halfSector), rmax]  (cos shrinks at max angle)
-        //   output v ∈ [0, rmax * sin(halfSector)]
-        const nuIv = [rmin * cosHalf, rmax];
-        const nvIv = [0, rmax * sinHalf];
+
+        // Try polar-aware path: compute angular interval of the box
+        const angleIv = iatan2(vIv, uIv);
+        const angleSpan = angleIv[1] - angleIv[0];
+
+        // If angle span > sector, the cell spans multiple copies —
+        // fall back to full-sector bounds
+        if (angleSpan >= sector) {
+          const nuIv = [rmin * cosHalf, rmax];
+          const nvIv = [0, rmax * sinHalf];
+          if (axis === 'y') return child(nuIv, wIv, nvIv);
+          if (axis === 'x') return child(wIv, nuIv, nvIv);
+          return child(nuIv, nvIv, wIv);
+        }
+
+        // Fold the angular interval into the fundamental sector [0, halfSector].
+        // The point evaluator does:
+        //   1. angle = atan2(v, u), normalize to [0, 2π)
+        //   2. angle = angle % sector → [0, sector)
+        //   3. if angle > halfSector: angle = sector - angle → mirror into [0, halfSector]
+        //
+        // For intervals, we fold into pieces and take the UNION of folded
+        // angle ranges, then evaluate the child once on the bounding box.
+        // (We can't evaluate pieces separately and union distances, because
+        // different parts of the Cartesian box map to different pieces —
+        // the child must see one interval that covers all possible folded angles.)
+
+        // Normalize to [0, 2π): shift by the smallest multiple of 2π
+        // that puts lo >= 0
+        const twoPi = 2 * Math.PI;
+        const shift = Math.floor(angleIv[0] / twoPi) * twoPi;
+        let aLo = angleIv[0] - shift;
+        let aHi = angleIv[1] - shift;
+        if (aLo < 0) { aLo = 0; }
+
+        // Fold into [0, sector): check if the interval straddles a sector boundary
+        const sectorLo = Math.floor(aLo / sector);
+        const sectorHi = Math.floor(aHi / sector);
+
+        let foldedIntervals;
+        if (sectorLo === sectorHi) {
+          foldedIntervals = [foldAngleInterval(aLo - sectorLo * sector, aHi - sectorLo * sector, halfSector)];
+        } else if (sectorHi - sectorLo === 1) {
+          const boundary = sectorHi * sector;
+          foldedIntervals = [
+            foldAngleInterval(aLo - sectorLo * sector, sector, halfSector),
+            foldAngleInterval(0, aHi - boundary, halfSector)
+          ];
+        } else {
+          foldedIntervals = [[0, halfSector]];
+        }
+
+        // Union of folded angle intervals → single bounding interval
+        let fLo = foldedIntervals[0][0], fHi = foldedIntervals[0][1];
+        for (let i = 1; i < foldedIntervals.length; i++) {
+          fLo = Math.min(fLo, foldedIntervals[i][0]);
+          fHi = Math.max(fHi, foldedIntervals[i][1]);
+        }
+
+        // Convert (r, θ_folded) to Cartesian intervals for child
+        // θ_folded ∈ [fLo, fHi] ⊆ [0, halfSector]
+        // cos is decreasing on [0, halfSector], sin is increasing
+        const cosLo = Math.cos(fHi), cosHi = Math.cos(fLo);
+        const sinLo = Math.sin(fLo), sinHi = Math.sin(fHi);
+        const nuIv = [rmin * cosLo, rmax * cosHi];
+        const nvIv = [rmin * sinLo, rmax * sinHi];
+
         if (axis === 'y') return child(nuIv, wIv, nvIv);
         if (axis === 'x') return child(wIv, nuIv, nvIv);
         return child(nuIv, nvIv, wIv);
@@ -426,6 +488,39 @@ function ivIntersect(results) {
 }
 
 // --- Helper ---
+
+// Fold an angle interval [lo, hi] within [0, sector] into [0, halfSector].
+// The point evaluator mirrors angles > halfSector: angle = sector - angle.
+// For intervals, if the interval straddles the mirror line at halfSector,
+// the folded interval covers [0, halfSector] (or close to it).
+// Returns [foldedLo, foldedHi] ⊆ [0, halfSector].
+function foldAngleInterval(lo, hi, halfSector) {
+  // Small epsilon to ensure conservative coverage at boundaries
+  const eps = 1e-12;
+  // Clamp inputs to valid range with padding
+  lo = Math.max(0, lo - eps);
+  hi = Math.min(2 * halfSector + eps, hi + eps);
+
+  if (hi <= halfSector) {
+    // Entirely in the non-mirrored half [0, halfSector]
+    return [Math.max(0, lo), Math.min(halfSector, hi)];
+  }
+  if (lo >= halfSector) {
+    // Entirely in the mirrored half [halfSector, sector]
+    // Mirror: angle → sector - angle = 2*halfSector - angle
+    // lo maps to 2*halfSector - lo (smaller after mirror)
+    // hi maps to 2*halfSector - hi (larger after mirror, since hi > lo → mirror(hi) < mirror(lo))
+    const mHi = 2 * halfSector - lo;  // mirror of lo → upper bound
+    const mLo = 2 * halfSector - hi;  // mirror of hi → lower bound
+    return [Math.max(0, mLo), Math.min(halfSector, mHi)];
+  }
+  // Straddles the mirror line: lo < halfSector < hi
+  // The non-mirrored part covers [lo, halfSector]
+  // The mirrored part covers [2*halfSector - hi, halfSector]
+  // Union: [min(lo, 2*halfSector - hi), halfSector]
+  const mirroredLo = 2 * halfSector - hi;
+  return [Math.max(0, Math.min(lo, mirroredLo)), halfSector];
+}
 
 // Wrap an interval into [-half, half] for tiling
 function wrapInterval(iv, spacing) {
