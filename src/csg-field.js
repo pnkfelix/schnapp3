@@ -179,6 +179,20 @@ export function evalCSGField(node) {
         return child(x, y, Math.abs(z));
       };
     }
+    case 'rotate': {
+      const axis = node[1].axis || 'y';
+      const angleDeg = node[1].angle != null ? node[1].angle : 45;
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY;
+      const child = evalCSGField(children[0]);
+      const rad = -angleDeg * Math.PI / 180;
+      const c = Math.cos(rad), s = Math.sin(rad);
+      return (x, y, z) => {
+        if (axis === 'y') return child(c * x - s * z, y, s * x + c * z);
+        if (axis === 'x') return child(x, c * y - s * z, s * y + c * z);
+        return child(c * x - s * y, s * x + c * y, z);
+      };
+    }
     case 'twist': {
       const axis = node[1].axis || 'y';
       const rate = node[1].rate != null ? node[1].rate : 0.1;
@@ -361,6 +375,18 @@ export function estimateBounds(node, offset = [0, 0, 0]) {
       const ai = (node[1].axis||'x') === 'x' ? 0 : (node[1].axis||'x') === 'y' ? 1 : 2;
       const ext = (node[1].spacing || 30) * 5;
       cb.min[ai] = offset[ai] - ext; cb.max[ai] = offset[ai] + ext;
+      return cb;
+    }
+    case 'rotate': {
+      const axis = node[1].axis || 'y';
+      const cb = mergeBounds(node.slice(2).map(c => estimateBounds(c, offset)));
+      const [a0, a1] = axis === 'x' ? [1, 2] : axis === 'y' ? [0, 2] : [0, 1];
+      const r = Math.max(
+        Math.abs(cb.min[a0]), Math.abs(cb.max[a0]),
+        Math.abs(cb.min[a1]), Math.abs(cb.max[a1])
+      );
+      cb.min[a0] = offset[a0] - r; cb.max[a0] = offset[a0] + r;
+      cb.min[a1] = offset[a1] - r; cb.max[a1] = offset[a1] + r;
       return cb;
     }
     case 'bend': {

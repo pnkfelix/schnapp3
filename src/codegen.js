@@ -71,6 +71,15 @@ function formatNode(node, indent) {
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
       return `${pad}(translate ${p.x} ${p.y} ${p.z}\n${childStrs})`;
     }
+    case 'rotate': {
+      const p = node[1];
+      const children = node.slice(2);
+      if (children.length === 0) {
+        return `${pad}(rotate :axis "${p.axis}" :angle ${p.angle})`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(rotate :axis "${p.axis}" :angle ${p.angle}\n${childStrs})`;
+    }
     case 'paint': {
       const p = node[1];
       const children = node.slice(2);

@@ -36,6 +36,7 @@ export function parseSExpr(text) {
       case 'anti': return parseAnti();
       case 'complement': return parseComplement();
       case 'fuse': return parseFuse();
+      case 'rotate': return parseRotate();
       case 'mirror': return parseMirror();
       case 'twist': return parseTwist();
       case 'radial': return parseRadial();
@@ -150,6 +151,13 @@ export function parseSExpr(text) {
     const children = parseChildren();
     next(); // )
     return ['complement', ...children];
+  }
+
+  function parseRotate() {
+    const kw = parseKeywordArgs();
+    const children = parseChildren();
+    next(); // )
+    return ['rotate', { axis: kw.axis || 'y', angle: kw.angle != null ? kw.angle : 45 }, ...children];
   }
 
   function parseMirror() {
