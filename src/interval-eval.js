@@ -168,6 +168,34 @@ export function evalCSGFieldInterval(node) {
         return child(xIv, yIv, iabs(zIv));
       };
     }
+    case 'rotate': {
+      const axis = node[1].axis || 'y';
+      const angleDeg = node[1].angle != null ? node[1].angle : 45;
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY_IV;
+      const child = evalCSGFieldInterval(children[0]);
+      // Fixed-angle rotation: apply inverse rotation to query intervals
+      const rad = -angleDeg * Math.PI / 180;
+      const cosIv = [Math.cos(rad), Math.cos(rad)];
+      const sinIv = [Math.sin(rad), Math.sin(rad)];
+      return (xIv, yIv, zIv) => {
+        let uIv, vIv;
+        if (axis === 'y') {
+          uIv = isub(imul(cosIv, xIv), imul(sinIv, zIv));
+          vIv = iadd(imul(sinIv, xIv), imul(cosIv, zIv));
+          return child(uIv, yIv, vIv);
+        }
+        if (axis === 'x') {
+          uIv = isub(imul(cosIv, yIv), imul(sinIv, zIv));
+          vIv = iadd(imul(sinIv, yIv), imul(cosIv, zIv));
+          return child(xIv, uIv, vIv);
+        }
+        // axis === 'z'
+        uIv = isub(imul(cosIv, xIv), imul(sinIv, yIv));
+        vIv = iadd(imul(sinIv, xIv), imul(cosIv, yIv));
+        return child(uIv, vIv, zIv);
+      };
+    }
     case 'twist': {
       const axis = node[1].axis || 'y';
       const rate = node[1].rate != null ? node[1].rate : 0.1;

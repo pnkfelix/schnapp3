@@ -44,7 +44,7 @@ const UNSET_RGB = DEFAULT_RGB;
 export function needsFieldEval(node) {
   const type = node[0];
   if (type === 'intersect' || type === 'anti' || type === 'complement' || type === 'fuse'
-      || type === 'mirror' || type === 'twist' || type === 'radial'
+      || type === 'mirror' || type === 'rotate' || type === 'twist' || type === 'radial'
       || type === 'stretch' || type === 'tile' || type === 'bend' || type === 'taper') return true;
   // Check children recursively
   const start = (type === 'union' || type === 'intersect' || type === 'anti' || type === 'complement') ? 1 : 2;
@@ -168,6 +168,7 @@ function evalNode(node) {
       return meshCSGNode(node);
     }
     case 'mirror':
+    case 'rotate':
     case 'twist':
     case 'radial':
     case 'stretch':
@@ -491,6 +492,21 @@ function evalCSGField(node) {
         return child(x, y, Math.abs(z));
       };
     }
+    case 'rotate': {
+      const axis = node[1].axis || 'y';
+      const angleDeg = node[1].angle != null ? node[1].angle : 45;
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY;
+      const child = evalCSGField(children[0]);
+      // rotate: apply inverse rotation (negate angle) to query point
+      const rad = -angleDeg * Math.PI / 180;
+      const c = Math.cos(rad), s = Math.sin(rad);
+      return (x, y, z) => {
+        if (axis === 'y') return child(c * x - s * z, y, s * x + c * z);
+        if (axis === 'x') return child(x, c * y - s * z, s * y + c * z);
+        return child(c * x - s * y, s * x + c * y, z);
+      };
+    }
     case 'twist': {
       const axis = node[1].axis || 'y';
       const rate = node[1].rate != null ? node[1].rate : 0.1;
@@ -790,6 +806,20 @@ export function evalField(node) {
         return child(x, y, Math.abs(z));
       };
     }
+    case 'rotate': {
+      const axis = node[1].axis || 'y';
+      const angleDeg = node[1].angle != null ? node[1].angle : 45;
+      const children = node.slice(2);
+      if (children.length === 0) return () => 1e10;
+      const child = evalField(children[0]);
+      const rad = -angleDeg * Math.PI / 180;
+      const c = Math.cos(rad), s = Math.sin(rad);
+      return (x, y, z) => {
+        if (axis === 'y') return child(c * x - s * z, y, s * x + c * z);
+        if (axis === 'x') return child(x, c * y - s * z, s * y + c * z);
+        return child(c * x - s * y, s * x + c * y, z);
+      };
+    }
     case 'twist': {
       const axis = node[1].axis || 'y';
       const rate = node[1].rate != null ? node[1].rate : 0.1;
@@ -971,6 +1001,22 @@ export function estimateBounds(node, offset = [0, 0, 0]) {
       const extent = Math.max(Math.abs(childBounds.min[ai]), Math.abs(childBounds.max[ai]));
       childBounds.min[ai] = offset[ai] - extent;
       childBounds.max[ai] = offset[ai] + extent;
+      return childBounds;
+    }
+    case 'rotate': {
+      // Rotation in the plane perpendicular to the axis — use max radial extent
+      const children = node.slice(2);
+      const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
+      const axis = node[1].axis || 'y';
+      const [a0, a1] = axis === 'x' ? [1, 2] : axis === 'y' ? [0, 2] : [0, 1];
+      const r = Math.max(
+        Math.abs(childBounds.min[a0]), Math.abs(childBounds.max[a0]),
+        Math.abs(childBounds.min[a1]), Math.abs(childBounds.max[a1])
+      );
+      childBounds.min[a0] = offset[a0] - r;
+      childBounds.max[a0] = offset[a0] + r;
+      childBounds.min[a1] = offset[a1] - r;
+      childBounds.max[a1] = offset[a1] + r;
       return childBounds;
     }
     case 'twist': {

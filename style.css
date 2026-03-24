@@ -402,6 +402,9 @@ html, body {
 .block--complement, .palette-item--complement {
   background: #668;
 }
+.block--rotate, .palette-item--rotate {
+  background: #a5c;
+}
 .block--mirror, .palette-item--mirror {
   background: #5a8;
 }

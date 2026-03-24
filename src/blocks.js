@@ -38,6 +38,15 @@ export const BLOCK_DEFS = {
     ],
     maxChildren: 1
   },
+  rotate: {
+    label: 'Rotate',
+    category: 'transform',
+    params: [
+      { name: 'axis', type: 'color', default: 'y', options: ['x', 'y', 'z'] },
+      { name: 'angle', type: 'number', default: 45, min: -360, max: 360 }
+    ],
+    maxChildren: 1
+  },
   paint: {
     label: 'Paint',
     category: 'appearance',
