@@ -5,7 +5,7 @@ import { evaluate, getResolution, setResolution, getUseOctree, setUseOctree, nee
 import { meshProgressive } from './progressive.js';
 import { resToDepth } from './octree-core.js';
 import { parseSExpr } from './parser.js';
-import { initGPU, gpuEvaluate, gpuEvaluateOctree, isGPUAvailable } from './gpu-engine.js';
+import { initGPU, gpuEvaluate, gpuEvaluateOctree, gpuEvaluateOctreeProgressive, isGPUAvailable } from './gpu-engine.js';
 import { runBenchmark } from './benchmark.js';
 
 // Boot viewport
@@ -403,8 +403,34 @@ async function runGPUPipeline(ast) {
   meshingIndicator.classList.add('visible');
   meshingIndicator.textContent = 'GPU meshing...';
   pipelinePending = true;
+
+  // Progressive GPU: serial refinement through increasing depths
+  if (useProgressiveMode && getUseOctree()) {
+    const targetDepth = resToDepth(getResolution());
+    cancelProgressive = gpuEvaluateOctreeProgressive(ast, targetDepth, (group, depth, stats, isFinal) => {
+      if (group) viewport.setContent(group);
+      if (stats) {
+        appendHudEntry({
+          meshTime: stats.meshTime,
+          resolution: stats.resolution,
+          voxels: stats.octree ? (stats.octree.pointEvals || 0) : 0,
+          nodes: stats.octree ? (stats.octree.leafCells || 0) : 0,
+          octree: stats.octree,
+          gpu: true
+        });
+      }
+      if (isFinal) {
+        meshingIndicator.classList.remove('visible');
+        stopMeshingTimer();
+        pipelinePending = false;
+        cancelProgressive = null;
+      }
+    }, updateMeshingStatus);
+    return;
+  }
+
+  // Non-progressive GPU
   try {
-    // Use octree+GPU when octree is enabled, uniform GPU otherwise
     let result = null;
     if (getUseOctree()) {
       result = await gpuEvaluateOctree(ast, getResolution());

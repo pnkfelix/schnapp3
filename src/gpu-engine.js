@@ -650,7 +650,6 @@ async function gpuDispatchSparsePoints(tape, coords, numPoints) {
 
 export async function gpuEvaluateOctree(ast, resolution = 48) {
   if (!gpuDevice || !gpuSparsePipeline) return null;
-  const t0 = performance.now();
 
   // Compile tape
   const compiled = compileTape(ast);
@@ -658,13 +657,111 @@ export async function gpuEvaluateOctree(ast, resolution = 48) {
   const { tape, bounds } = compiled;
 
   const depth = resToDepth(resolution);
+  return _gpuOctreeAtDepth(ast, tape, bounds, depth);
+}
+
+// Serial progressive GPU rendering.
+// Runs octree+GPU evaluation at increasing depths, yielding to the UI
+// between each stage so the user sees a quick blocky preview that refines.
+// Unlike CPU progressive (which uses parallel workers), GPU stages run
+// serially since WebGPU dispatches share a single device/queue.
+//
+// onResult(group, depth, stats, isFinal) — called after each stage
+// onStatus(inFlightDepths) — called to update the meshing indicator
+// Returns a cancel function.
+export function gpuEvaluateOctreeProgressive(ast, targetDepth, onResult, onStatus) {
+  if (!gpuDevice || !gpuSparsePipeline) return () => {};
+
+  let cancelled = false;
+
+  // Choose refinement levels (same logic as CPU progressive)
+  const depths = [];
+  const previewDepth = Math.max(3, Math.min(targetDepth - 2, 4));
+  for (let d = previewDepth; d < targetDepth; d += 2) {
+    depths.push(d);
+  }
+  if (depths[depths.length - 1] !== targetDepth) depths.push(targetDepth);
+
+  // Run the async pipeline
+  (async () => {
+    // Compile tape once
+    const compiled = compileTape(ast);
+    if (!compiled) {
+      onResult(new THREE.Group(), targetDepth, null, true);
+      return;
+    }
+    const { tape, bounds } = compiled;
+
+    if (onStatus) onStatus(depths.slice());
+
+    for (let i = 0; i < depths.length; i++) {
+      if (cancelled) return;
+
+      const depth = depths[i];
+      const isFinal = (i === depths.length - 1);
+
+      try {
+        const result = await _gpuOctreeAtDepth(ast, tape, bounds, depth);
+        if (cancelled) return;
+
+        if (result) {
+          onResult(result.group, depth, {
+            meshTime: result.stats.meshTime,
+            octree: result.stats.octree,
+            depth,
+            resolution: 1 << depth
+          }, isFinal);
+        } else if (isFinal) {
+          onResult(new THREE.Group(), depth, null, true);
+        }
+      } catch (e) {
+        console.warn(`GPU progressive: depth ${depth} (res ${1 << depth}) failed:`, e.message);
+        // If allocation failed, deeper depths will also fail — stop early.
+        // Report the last successful result as final.
+        if (onStatus) onStatus([]);
+        onResult(null, depth, null, true);
+        return;
+      }
+
+      // Update status: remove completed depth
+      if (onStatus) {
+        const remaining = depths.slice(i + 1);
+        onStatus(remaining);
+      }
+
+      // Yield to UI between stages (except after the last one)
+      if (!isFinal && !cancelled) {
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      }
+    }
+  })();
+
+  // Return cancel function
+  return () => { cancelled = true; };
+}
+
+// Core octree+GPU evaluation at a specific depth with pre-compiled tape.
+// Extracted so progressive rendering can reuse it across multiple depths.
+async function _gpuOctreeAtDepth(ast, tape, bounds, depth) {
+  const t0 = performance.now();
   const n = 1 << depth;
+  const gn = n + 1;
+
+  // Guard against impossibly large allocations.
+  // The biggest typed array is pointKeyToIdx: Int32Array(gn³) = gn³ * 4 bytes.
+  // At depth 10 (n=1024, gn=1025): ~4.3 GB — already borderline.
+  // Cap at depth 9 (n=512, gn=513): ~540 MB — safe.
+  const totalGridPts = gn * gn * gn;
+  const estimatedBytes = totalGridPts * 4; // Int32Array is the largest per-point
+  if (estimatedBytes > 1e9) { // 1 GB limit
+    throw new Error(`Octree depth ${depth} (res ${n}) requires ~${(estimatedBytes / 1e9).toFixed(1)}GB for grid arrays — too large`);
+  }
+
   const [minX, minY, minZ] = bounds.min;
   const [maxX, maxY, maxZ] = bounds.max;
   const sx = (maxX - minX) / n;
   const sy = (maxY - minY) / n;
   const sz = (maxZ - minZ) / n;
-  const gn = n + 1;
 
   // Build octree via CPU interval arithmetic
   let intervalField;
@@ -694,7 +791,7 @@ export async function gpuEvaluateOctree(ast, resolution = 48) {
     console.log('GPU octree: octree bailed out, falling back to uniform GPU');
     octreeStats.bailedOut = true;
     // Fall back to uniform GPU
-    return gpuEvaluate(ast, resolution);
+    return gpuEvaluate(ast, n);
   }
 
   if (leaves.length === 0) {
