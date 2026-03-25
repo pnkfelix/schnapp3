@@ -134,7 +134,9 @@ export function evalCSGFieldInterval(node) {
       const child = evalCSGFieldInterval(children[0]);
       return (xIv, yIv, zIv) => {
         const r = child(xIv, yIv, zIv);
-        return { distance: ineg(r.distance), polarity: r.polarity };
+        const nd = ineg(r.distance);
+        const polarity = nd[1] <= 0 ? [1, 1] : nd[0] > 0 ? [0, 0] : [0, 1];
+        return { distance: nd, polarity };
       };
     }
     case 'fuse': {

@@ -164,7 +164,9 @@ export function evaluateTapeAt(tape, x, y, z) {
       }
       case OP_COMPLEMENT: {
         if (vsDist.length >= 1) {
-          vsDist[vsDist.length - 1] = -vsDist[vsDist.length - 1];
+          const nd = -vsDist[vsDist.length - 1];
+          vsDist[vsDist.length - 1] = nd;
+          vsPol[vsPol.length - 1] = nd <= 0 ? 1 : 0;
         }
         break;
       }
