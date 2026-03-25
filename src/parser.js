@@ -288,7 +288,13 @@ export function parseSExpr(text) {
   }
 
   function parseScalar() {
-    // (scalar VALUE)
+    // (scalar VALUE) or (scalar :value VALUE)
+    // Try keyword form first, fall back to positional
+    const kw = parseKeywordArgs();
+    if (kw.value != null) {
+      next(); // )
+      return ['scalar', { value: kw.value }];
+    }
     const value = parseNumber();
     next(); // )
     return ['scalar', { value }];

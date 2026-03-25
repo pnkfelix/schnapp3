@@ -117,23 +117,54 @@ const DEFAULT_MODELS = {
   fractal: `(fractal :count 3
   (paint :color "green"
     (cube 10))
-  (enzyme :tags ("step" "shape")
-    (union
-      (var "shape")
-      (translate 12 12 0
-        (stretch 0.6 0.6 0.6
-          (stir
-            (var "step")
-            (tag "shape"
-              (paint :color "orange"
-                (var "shape"))))))
-      (translate -12 12 0
-        (stretch 0.6 0.6 0.6
-          (stir
-            (var "step")
-            (tag "shape"
-              (paint :color "blue"
-                (var "shape")))))))))`,
+  (enzyme :tags ("step")
+    (enzyme :tags ("shape")
+      (union
+        (var "shape")
+        (translate 12 12 0
+          (stretch :sx 0.6 :sy 0.6 :sz 0.6
+            (stir
+              (var "step")
+              (tag "shape"
+                (paint :color "orange"
+                  (var "shape"))))))
+        (translate -12 12 0
+          (stretch :sx 0.6 :sy 0.6 :sz 0.6
+            (stir
+              (var "step")
+              (tag "shape"
+                (paint :color "blue"
+                  (var "shape"))))))))))`,
+  menger: `(stir
+  (enzyme :tags ("s" "d" "n")
+    (fractal :count 2
+      (cube 30)
+      (enzyme :tags ("step")
+        (enzyme :tags ("shape")
+              (union
+                (translate (var "n") (var "n") (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate       0  (var "n") (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "d") (var "n") (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "n")       0  (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "d")       0  (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "n") (var "d") (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate       0  (var "d") (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "d") (var "d") (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "n") (var "n")       0  (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "d") (var "n")       0  (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "n") (var "d")       0  (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "d") (var "d")       0  (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "n") (var "n") (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate       0  (var "n") (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "d") (var "n") (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "n")       0  (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "d")       0  (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "n") (var "d") (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate       0  (var "d") (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "d") (var "d") (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape"))))))))))
+  (tag "s" (scalar 0.333))
+  (tag "d" (scalar 10))
+  (tag "n" (scalar -10)))`,
 };
 
 const DEFAULT_MODEL_NAME = 'lizard';
