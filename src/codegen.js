@@ -18,7 +18,13 @@ function blockToAST(block) {
   const def = BLOCK_DEFS[block.type];
   const params = {};
   for (const p of def.params) {
-    params[p.name] = block.params[p.name];
+    // If this param has a block in an expr slot, emit its AST instead of the literal
+    const exprBlock = block.exprSlots && block.exprSlots[p.name];
+    if (exprBlock) {
+      params[p.name] = blockToAST(exprBlock);
+    } else {
+      params[p.name] = block.params[p.name];
+    }
   }
 
   if (def.maxChildren === 0) {
@@ -30,11 +36,11 @@ function blockToAST(block) {
   const childExprs = block.children.map(blockToAST);
 
   // Parameterless containers: union, intersect, anti, complement
-  const noParamTypes = ['union', 'intersect', 'anti', 'complement'];
+  const noParamTypes = ['union', 'intersect', 'anti', 'complement', 'stir'];
   if (noParamTypes.includes(block.type)) {
     return [block.type, ...childExprs];
   }
-  // All other containers have params: translate, paint, recolor, fuse
+  // All other containers have params
   return [block.type, params, ...childExprs];
 }
 
@@ -45,6 +51,16 @@ export function formatSExpr(ast) {
   return formatNode(ast, 0);
 }
 
+// Format a parameter value that may be a literal or an embedded expression.
+// Expressions (AST arrays) are formatted inline without leading indentation.
+function fmtParam(val) {
+  if (Array.isArray(val)) {
+    // Embedded expression — format it at indent 0 and strip leading whitespace
+    return formatNode(val, 0);
+  }
+  return String(val);
+}
+
 function formatNode(node, indent) {
   const pad = '  '.repeat(indent);
   const type = node[0];
@@ -52,33 +68,33 @@ function formatNode(node, indent) {
   switch (type) {
     case 'cube': {
       const p = node[1];
-      return `${pad}(cube ${p.size})`;
+      return `${pad}(cube ${fmtParam(p.size)})`;
     }
     case 'sphere': {
       const p = node[1];
-      return `${pad}(sphere ${p.radius})`;
+      return `${pad}(sphere ${fmtParam(p.radius)})`;
     }
     case 'cylinder': {
       const p = node[1];
-      return `${pad}(cylinder ${p.radius} ${p.height})`;
+      return `${pad}(cylinder ${fmtParam(p.radius)} ${fmtParam(p.height)})`;
     }
     case 'translate': {
       const p = node[1];
       const children = node.slice(2);
       if (children.length === 0) {
-        return `${pad}(translate ${p.x} ${p.y} ${p.z})`;
+        return `${pad}(translate ${fmtParam(p.x)} ${fmtParam(p.y)} ${fmtParam(p.z)})`;
       }
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
-      return `${pad}(translate ${p.x} ${p.y} ${p.z}\n${childStrs})`;
+      return `${pad}(translate ${fmtParam(p.x)} ${fmtParam(p.y)} ${fmtParam(p.z)}\n${childStrs})`;
     }
     case 'rotate': {
       const p = node[1];
       const children = node.slice(2);
       if (children.length === 0) {
-        return `${pad}(rotate :axis "${p.axis}" :angle ${p.angle})`;
+        return `${pad}(rotate :axis "${p.axis}" :angle ${fmtParam(p.angle)})`;
       }
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
-      return `${pad}(rotate :axis "${p.axis}" :angle ${p.angle}\n${childStrs})`;
+      return `${pad}(rotate :axis "${p.axis}" :angle ${fmtParam(p.angle)}\n${childStrs})`;
     }
     case 'paint': {
       const p = node[1];
@@ -120,10 +136,10 @@ function formatNode(node, indent) {
       const p = node[1];
       const children = node.slice(2);
       if (children.length === 0) {
-        return `${pad}(fuse :k ${p.k})`;
+        return `${pad}(fuse :k ${fmtParam(p.k)})`;
       }
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
-      return `${pad}(fuse :k ${p.k}\n${childStrs})`;
+      return `${pad}(fuse :k ${fmtParam(p.k)}\n${childStrs})`;
     }
     case 'mirror': {
       const p = node[1];
@@ -138,55 +154,129 @@ function formatNode(node, indent) {
       const p = node[1];
       const children = node.slice(2);
       if (children.length === 0) {
-        return `${pad}(twist :axis "${p.axis}" :rate ${p.rate})`;
+        return `${pad}(twist :axis "${p.axis}" :rate ${fmtParam(p.rate)})`;
       }
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
-      return `${pad}(twist :axis "${p.axis}" :rate ${p.rate}\n${childStrs})`;
+      return `${pad}(twist :axis "${p.axis}" :rate ${fmtParam(p.rate)}\n${childStrs})`;
     }
     case 'radial': {
       const p = node[1];
       const children = node.slice(2);
       if (children.length === 0) {
-        return `${pad}(radial :axis "${p.axis}" :count ${p.count})`;
+        return `${pad}(radial :axis "${p.axis}" :count ${fmtParam(p.count)})`;
       }
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
-      return `${pad}(radial :axis "${p.axis}" :count ${p.count}\n${childStrs})`;
+      return `${pad}(radial :axis "${p.axis}" :count ${fmtParam(p.count)}\n${childStrs})`;
     }
     case 'stretch': {
       const p = node[1];
       const children = node.slice(2);
       if (children.length === 0) {
-        return `${pad}(stretch :sx ${p.sx} :sy ${p.sy} :sz ${p.sz})`;
+        return `${pad}(stretch :sx ${fmtParam(p.sx)} :sy ${fmtParam(p.sy)} :sz ${fmtParam(p.sz)})`;
       }
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
-      return `${pad}(stretch :sx ${p.sx} :sy ${p.sy} :sz ${p.sz}\n${childStrs})`;
+      return `${pad}(stretch :sx ${fmtParam(p.sx)} :sy ${fmtParam(p.sy)} :sz ${fmtParam(p.sz)}\n${childStrs})`;
     }
     case 'tile': {
       const p = node[1];
       const children = node.slice(2);
       if (children.length === 0) {
-        return `${pad}(tile :axis "${p.axis}" :spacing ${p.spacing})`;
+        return `${pad}(tile :axis "${p.axis}" :spacing ${fmtParam(p.spacing)})`;
       }
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
-      return `${pad}(tile :axis "${p.axis}" :spacing ${p.spacing}\n${childStrs})`;
+      return `${pad}(tile :axis "${p.axis}" :spacing ${fmtParam(p.spacing)}\n${childStrs})`;
     }
     case 'bend': {
       const p = node[1];
       const children = node.slice(2);
       if (children.length === 0) {
-        return `${pad}(bend :axis "${p.axis}" :rate ${p.rate})`;
+        return `${pad}(bend :axis "${p.axis}" :rate ${fmtParam(p.rate)})`;
       }
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
-      return `${pad}(bend :axis "${p.axis}" :rate ${p.rate}\n${childStrs})`;
+      return `${pad}(bend :axis "${p.axis}" :rate ${fmtParam(p.rate)}\n${childStrs})`;
     }
     case 'taper': {
       const p = node[1];
       const children = node.slice(2);
       if (children.length === 0) {
-        return `${pad}(taper :axis "${p.axis}" :rate ${p.rate})`;
+        return `${pad}(taper :axis "${p.axis}" :rate ${fmtParam(p.rate)})`;
       }
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
-      return `${pad}(taper :axis "${p.axis}" :rate ${p.rate}\n${childStrs})`;
+      return `${pad}(taper :axis "${p.axis}" :rate ${fmtParam(p.rate)}\n${childStrs})`;
+    }
+    case 'let': {
+      const p = node[1];
+      const children = node.slice(2);
+      if (children.length === 0) {
+        return `${pad}(let "${p.name}")`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(let "${p.name}"\n${childStrs})`;
+    }
+    case 'var': {
+      const p = node[1];
+      return `${pad}(var "${p.name}")`;
+    }
+    case 'grow': {
+      const p = node[1];
+      const children = node.slice(2);
+      if (children.length === 0) {
+        return `${pad}(grow "${p.name}" :count ${fmtParam(p.count)})`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(grow "${p.name}" :count ${fmtParam(p.count)}\n${childStrs})`;
+    }
+    case 'fractal': {
+      const p = node[1];
+      const children = node.slice(2);
+      if (children.length === 0) {
+        return `${pad}(fractal :count ${fmtParam(p.count)})`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(fractal :count ${fmtParam(p.count)}\n${childStrs})`;
+    }
+    case 'stir': {
+      const children = node.slice(1);
+      if (children.length === 0) {
+        return `${pad}(stir)`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(stir\n${childStrs})`;
+    }
+    case 'enzyme': {
+      const p = node[1];
+      const tagList = (p.tags || '').trim().split(/\s+/).filter(Boolean);
+      const tagsStr = tagList.map(t => `"${t}"`).join(' ');
+      const children = node.slice(2);
+      if (children.length === 0) {
+        return `${pad}(enzyme :tags (${tagsStr}))`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(enzyme :tags (${tagsStr})\n${childStrs})`;
+    }
+    case 'tags': {
+      const p = node[1];
+      const nameList = (p.names || '').trim().split(/\s+/).filter(Boolean);
+      const namesStr = nameList.map(n => `"${n}"`).join(' ');
+      const children = node.slice(2);
+      if (children.length === 0) {
+        return `${pad}(tags (${namesStr}))`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(tags (${namesStr})\n${childStrs})`;
+    }
+    case 'tag': {
+      const p = node[1];
+      const children = node.slice(2);
+      if (children.length === 0) {
+        return `${pad}(tag "${p.name}")`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(tag "${p.name}"\n${childStrs})`;
+    }
+    case 'scalar': {
+      const p = node[1];
+      return `${pad}(scalar ${fmtParam(p.value)})`;
     }
     default:
       return `${pad}(${type})`;
