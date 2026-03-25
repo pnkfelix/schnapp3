@@ -247,9 +247,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
           vs_pol[val_sp - 1u] = -vs_pol[val_sp - 1u];
         }
       }
-      case 8u: { // OP_COMPLEMENT — negate distance of top
+      case 8u: { // OP_COMPLEMENT — negate distance, recompute polarity
         if (val_sp >= 1u) {
-          vs_dist[val_sp - 1u] = -vs_dist[val_sp - 1u];
+          let nd = -vs_dist[val_sp - 1u];
+          vs_dist[val_sp - 1u] = nd;
+          vs_pol[val_sp - 1u] = select(0.0, 1.0, nd <= 0.0);
         }
       }
       case 9u: { // OP_FUSE — smooth min of top N

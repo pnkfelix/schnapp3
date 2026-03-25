@@ -130,7 +130,8 @@ export function evalCSGField(node) {
       const child = evalCSGField(children[0]);
       return (x, y, z) => {
         const r = child(x, y, z);
-        return { polarity: r.polarity, distance: -r.distance, color: r.color };
+        const nd = -r.distance;
+        return { polarity: nd <= 0 ? 1 : 0, distance: nd, color: r.color };
       };
     }
     case 'fuse': {
