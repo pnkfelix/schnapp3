@@ -159,6 +159,70 @@ export const BLOCK_DEFS = {
     ],
     maxChildren: 1
   },
+  // ---- PL blocks ----
+  let: {
+    label: 'Let',
+    category: 'binding',
+    params: [
+      { name: 'name', type: 'text', default: 'x' }
+    ],
+    maxChildren: 2   // child 0 = value expression, child 1 = body expression
+  },
+  var: {
+    label: 'Var',
+    category: 'binding',
+    params: [
+      { name: 'name', type: 'text', default: 'x' }
+    ],
+    maxChildren: 0   // leaf node — references a bound name
+  },
+  grow: {
+    label: 'Grow',
+    category: 'binding',
+    params: [
+      { name: 'name', type: 'text', default: 'acc' },
+      { name: 'count', type: 'number', default: 4, min: 1, max: 50 }
+    ],
+    maxChildren: 2   // child 0 = seed, child 1 = step body (may reference 'name')
+  },
+  stir: {
+    label: 'Stir',
+    category: 'binding',
+    params: [],
+    maxChildren: Infinity  // bag — drop lambdas, tagged values, and bare values in
+  },
+  enzyme: {
+    label: 'Enzyme',
+    category: 'binding',
+    params: [
+      { name: 'tags', type: 'text', default: 'x' }    // space-separated tag names to bind from stir
+    ],
+    maxChildren: 1   // body — may use (var "tagname") to reference matched values
+  },
+  tag: {
+    label: 'Tag',
+    category: 'binding',
+    params: [
+      { name: 'name', type: 'text', default: 'x' }    // single tag name
+    ],
+    maxChildren: 1   // the value being tagged (use Scalar for numbers)
+  },
+  fractal: {
+    label: 'Fractal',
+    category: 'binding',
+    params: [
+      { name: 'count', type: 'number', default: 3, min: 1, max: 8 }
+    ],
+    maxChildren: 2   // child 0 = seed, child 1 = self_step as (enzyme "recur" (enzyme "input" body))
+  },
+  scalar: {
+    label: 'Scalar',
+    category: 'binding',
+    params: [
+      { name: 'value', type: 'number', default: 0, min: -1000, max: 1000 }
+    ],
+    maxChildren: 0   // leaf — produces a bare number
+  },
 };
 
 // ---- State ----
@@ -194,6 +258,7 @@ function createBlock(type) {
     id: 'block_' + (nextId++),
     type,
     params,
+    exprSlots: {},  // paramName → child block (for number params with dropped blocks)
     children: [],
     parent: null
   };
@@ -206,6 +271,12 @@ function removeBlockFromParent(block) {
     const parent = allBlocks.get(block.parent);
     if (parent) {
       parent.children = parent.children.filter(c => c.id !== block.id);
+      // Also check exprSlots
+      for (const [key, child] of Object.entries(parent.exprSlots)) {
+        if (child && child.id === block.id) {
+          delete parent.exprSlots[key];
+        }
+      }
     }
     block.parent = null;
   } else {
@@ -216,6 +287,9 @@ function removeBlockFromParent(block) {
 function removeBlockRecursive(block) {
   for (const child of block.children) {
     removeBlockRecursive(child);
+  }
+  for (const child of Object.values(block.exprSlots)) {
+    if (child) removeBlockRecursive(child);
   }
   allBlocks.delete(block.id);
 }
@@ -261,6 +335,60 @@ export function updateParam(blockId, paramName, value) {
   notify();
 }
 
+// Set a block into an expression-capable param slot.
+// If the slot already has a block, remove it first.
+export function setExprSlot(parentId, paramName, blockType) {
+  const parent = allBlocks.get(parentId);
+  if (!parent) return null;
+  // Remove existing block in this slot
+  const existing = parent.exprSlots[paramName];
+  if (existing) {
+    existing.parent = null;
+    removeBlockRecursive(existing);
+  }
+  const block = createBlock(blockType);
+  block.parent = parentId;
+  parent.exprSlots[paramName] = block;
+  notify();
+  return block;
+}
+
+// Move an existing block into an expression-capable param slot.
+export function moveToExprSlot(blockId, parentId, paramName) {
+  const block = allBlocks.get(blockId);
+  const parent = allBlocks.get(parentId);
+  if (!block || !parent) return;
+  // Prevent dropping into own subtree
+  let ancestor = parent;
+  while (ancestor) {
+    if (ancestor.id === blockId) return;
+    ancestor = ancestor.parent ? allBlocks.get(ancestor.parent) : null;
+  }
+  // Remove existing block in this slot
+  const existing = parent.exprSlots[paramName];
+  if (existing && existing.id !== blockId) {
+    existing.parent = null;
+    removeBlockRecursive(existing);
+  }
+  removeBlockFromParent(block);
+  block.parent = parentId;
+  parent.exprSlots[paramName] = block;
+  notify();
+}
+
+// Clear a block from an expression param slot (restores to literal).
+export function clearExprSlot(parentId, paramName) {
+  const parent = allBlocks.get(parentId);
+  if (!parent) return;
+  const existing = parent.exprSlots[paramName];
+  if (existing) {
+    existing.parent = null;
+    removeBlockRecursive(existing);
+    delete parent.exprSlots[paramName];
+    notify();
+  }
+}
+
 // Replace entire block state from a parsed AST (used by code editor round-trip).
 // Does NOT notify subscribers to avoid circular updates.
 export function replaceFromAST(ast) {
@@ -279,6 +407,7 @@ export function replaceFromAST(ast) {
       id: 'block_' + (nextId++),
       type,
       params: {},
+      exprSlots: {},
       children: [],
       parent: parentId
     };
@@ -292,14 +421,24 @@ export function replaceFromAST(ast) {
     if (node[1] && typeof node[1] === 'object' && !Array.isArray(node[1])) {
       const p = node[1];
       for (const param of def.params) {
-        if (p[param.name] != null) block.params[param.name] = p[param.name];
+        if (p[param.name] != null) {
+          // If the param value is an AST array (expression), build it as an expr-slot block
+          if (Array.isArray(p[param.name]) && param.type === 'number') {
+            const exprChild = buildBlock(p[param.name], block.id);
+            if (exprChild) {
+              block.exprSlots[param.name] = exprChild;
+            }
+          } else {
+            block.params[param.name] = p[param.name];
+          }
+        }
       }
     }
 
     allBlocks.set(block.id, block);
 
-    // Build children — union/intersect/anti/complement have no params object, others do
-    const noParamTypes = ['union', 'intersect', 'anti', 'complement'];
+    // Build children — parameterless containers have children starting at index 1
+    const noParamTypes = ['union', 'intersect', 'anti', 'complement', 'stir'];
     const childNodes = noParamTypes.includes(type) ? node.slice(1) : node.slice(2);
     for (const childNode of childNodes) {
       if (Array.isArray(childNode)) {
@@ -407,13 +546,35 @@ function createParamInput(p, block) {
   lbl.appendChild(span);
 
   if (p.type === 'number') {
+    // Check if there's a block in the expr slot for this param
+    const exprBlock = block.exprSlots[p.name];
+    if (exprBlock) {
+      // Render the expression block inline instead of a number input
+      const exprEl = renderBlock(exprBlock);
+      exprEl.classList.add('expr-slot__block');
+      lbl.appendChild(exprEl);
+    } else {
+      // Literal number input — also a drop target for blocks
+      const wrapper = document.createElement('span');
+      wrapper.className = 'expr-slot';
+      wrapper.dataset.exprTarget = block.id + ':' + p.name;
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.value = block.params[p.name];
+      input.min = p.min;
+      input.max = p.max;
+      input.dataset.blockId = block.id;
+      input.dataset.paramName = p.name;
+      wrapper.appendChild(input);
+      lbl.appendChild(wrapper);
+    }
+  } else if (p.type === 'text') {
     const input = document.createElement('input');
-    input.type = 'number';
+    input.type = 'text';
     input.value = block.params[p.name];
-    input.min = p.min;
-    input.max = p.max;
     input.dataset.blockId = block.id;
     input.dataset.paramName = p.name;
+    input.placeholder = p.name;
     lbl.appendChild(input);
   } else if (p.type === 'color') {
     const select = document.createElement('select');
@@ -483,8 +644,31 @@ function renderBlock(block) {
     const childrenEl = document.createElement('div');
     childrenEl.className = 'block__children';
     const isBag = def.maxChildren === Infinity;
+    const isLabeledSlots = block.type === 'let' || block.type === 'grow';
 
-    if (isBag) {
+    if (isLabeledSlots) {
+      // Two labeled slots: value/seed + body
+      const slotLabels = block.type === 'let'
+        ? ['value', 'body']
+        : ['seed', 'body'];
+
+      for (let i = 0; i < def.maxChildren; i++) {
+        const slotLabel = document.createElement('div');
+        slotLabel.className = 'block__slot-label';
+        slotLabel.textContent = slotLabels[i] + ':';
+        childrenEl.appendChild(slotLabel);
+
+        if (block.children[i]) {
+          childrenEl.appendChild(renderBlock(block.children[i]));
+        } else {
+          const dropZone = document.createElement('div');
+          dropZone.className = 'drop-zone';
+          dropZone.dataset.dropTarget = block.id + ':' + i;
+          dropZone.textContent = 'Drop ' + slotLabels[i] + ' here';
+          childrenEl.appendChild(dropZone);
+        }
+      }
+    } else if (isBag) {
       // Bag container: inter-child drop zones for reordering
       for (let i = 0; i < block.children.length; i++) {
         const gap = document.createElement('div');
@@ -524,9 +708,13 @@ function renderBlock(block) {
 function onParamInput(e) {
   const target = e.target;
   if (target.tagName === 'INPUT' && target.dataset.blockId) {
-    const val = parseFloat(target.value);
-    if (!isNaN(val)) {
-      updateParam(target.dataset.blockId, target.dataset.paramName, val);
+    if (target.type === 'text') {
+      updateParam(target.dataset.blockId, target.dataset.paramName, target.value);
+    } else {
+      const val = parseFloat(target.value);
+      if (!isNaN(val)) {
+        updateParam(target.dataset.blockId, target.dataset.paramName, val);
+      }
     }
   }
 }
@@ -622,27 +810,42 @@ function onDragEnd(e) {
     return;
   }
 
-  // Find drop target — may be "root", "root:index", "blockId", or "blockId:index"
+  // Find drop target — may be "root", "root:index", "blockId", "blockId:index",
+  // or "expr:blockId:paramName" for expression param slots
   const raw = findDropTarget(e.clientX, e.clientY);
-  let target = raw;
-  let insertIndex;
-  if (raw && raw.includes(':')) {
-    const parts = raw.split(':');
-    target = parts[0];
-    insertIndex = parseInt(parts[1], 10);
-  }
 
-  if (dragState.source === 'palette') {
-    if (target === 'root') {
-      addBlockToRoot(dragState.blockType, insertIndex);
-    } else if (target) {
-      addBlockAsChild(dragState.blockType, target, insertIndex);
+  // Handle expression-param slot drops
+  if (raw && raw.startsWith('expr:')) {
+    const rest = raw.slice(5); // strip "expr:"
+    const colonIdx = rest.indexOf(':');
+    const parentId = rest.slice(0, colonIdx);
+    const paramName = rest.slice(colonIdx + 1);
+    if (dragState.source === 'palette') {
+      setExprSlot(parentId, paramName, dragState.blockType);
+    } else if (dragState.source === 'workspace') {
+      moveToExprSlot(dragState.blockId, parentId, paramName);
     }
-  } else if (dragState.source === 'workspace') {
-    if (target === 'root') {
-      moveBlock(dragState.blockId, null, insertIndex);
-    } else if (target && target !== dragState.blockId) {
-      moveBlock(dragState.blockId, target, insertIndex);
+  } else {
+    let target = raw;
+    let insertIndex;
+    if (raw && raw.includes(':')) {
+      const parts = raw.split(':');
+      target = parts[0];
+      insertIndex = parseInt(parts[1], 10);
+    }
+
+    if (dragState.source === 'palette') {
+      if (target === 'root') {
+        addBlockToRoot(dragState.blockType, insertIndex);
+      } else if (target) {
+        addBlockAsChild(dragState.blockType, target, insertIndex);
+      }
+    } else if (dragState.source === 'workspace') {
+      if (target === 'root') {
+        moveBlock(dragState.blockId, null, insertIndex);
+      } else if (target && target !== dragState.blockId) {
+        moveBlock(dragState.blockId, target, insertIndex);
+      }
     }
   }
 
@@ -679,12 +882,19 @@ function highlightDropTargets(x, y) {
       el.classList.add('drop-zone--active');
       break;
     }
+    if (el.classList.contains('expr-slot')) {
+      el.classList.add('expr-slot--active');
+      break;
+    }
   }
 }
 
 function clearDropHighlights() {
   for (const el of document.querySelectorAll('.drop-zone--active')) {
     el.classList.remove('drop-zone--active');
+  }
+  for (const el of document.querySelectorAll('.expr-slot--active')) {
+    el.classList.remove('expr-slot--active');
   }
 }
 
@@ -693,6 +903,10 @@ function findDropTarget(x, y) {
   for (const el of els) {
     if (el.classList.contains('drop-zone') && el.dataset.dropTarget) {
       return el.dataset.dropTarget;
+    }
+    // Expression-capable param slots: "expr:blockId:paramName"
+    if (el.classList.contains('expr-slot') && el.dataset.exprTarget) {
+      return 'expr:' + el.dataset.exprTarget;
     }
   }
   return null;

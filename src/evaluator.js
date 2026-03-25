@@ -42,10 +42,13 @@ const UNSET_RGB = DEFAULT_RGB;
 // If so, we must mesh the entire subtree via surface-nets rather than
 // using Three.js primitives.
 export function needsFieldEval(node) {
+  if (!node || !Array.isArray(node)) return false;
   const type = node[0];
   if (type === 'intersect' || type === 'anti' || type === 'complement' || type === 'fuse'
       || type === 'mirror' || type === 'rotate' || type === 'twist' || type === 'radial'
       || type === 'stretch' || type === 'tile' || type === 'bend' || type === 'taper') return true;
+  // PL nodes should be expanded before reaching here, but handle gracefully
+  if (type === 'let' || type === 'var' || type === 'grow' || type === 'fractal' || type === 'stir' || type === 'enzyme' || type === 'tags' || type === 'tag' || type === 'scalar') return false;
   // Check children recursively
   const start = (type === 'union' || type === 'intersect' || type === 'anti' || type === 'complement') ? 1 : 2;
   const children = node.slice(start);

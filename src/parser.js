@@ -44,6 +44,15 @@ export function parseSExpr(text) {
       case 'tile': return parseTile();
       case 'bend': return parseBend();
       case 'taper': return parseTaper();
+      case 'let': return parseLet();
+      case 'var': return parseVar();
+      case 'grow': return parseGrow();
+      case 'fractal': return parseFractal();
+      case 'stir': return parseStir();
+      case 'enzyme': return parseEnzyme();
+      case 'tags': return parseTags();
+      case 'tag': return parseTag();
+      case 'scalar': return parseScalar();
       default: {
         skipUntilClose();
         return [type];
@@ -52,6 +61,10 @@ export function parseSExpr(text) {
   }
 
   function parseNumber() {
+    // Allow sub-expressions (e.g. (var "x")) in numeric positions
+    if (peek() === '(') {
+      return parseExpr();
+    }
     const t = next();
     return Number(t);
   }
@@ -60,10 +73,15 @@ export function parseSExpr(text) {
     const args = {};
     while (peek() && peek().startsWith(':')) {
       const kw = next().slice(1); // strip ':'
-      if (kw === 'color' || kw === 'from' || kw === 'to' || kw === 'axis') {
+      if (kw === 'color' || kw === 'from' || kw === 'to' || kw === 'axis'
+          || kw === 'name' || kw === 'params' || kw === 'args') {
         args[kw] = parseStringOrIdent();
-      } else if (kw === 'k' || kw === 'rate' || kw === 'count' || kw === 'spacing' || kw === 'sx' || kw === 'sy' || kw === 'sz') {
+      } else if (kw === 'k' || kw === 'rate' || kw === 'count' || kw === 'spacing' || kw === 'sx' || kw === 'sy' || kw === 'sz'
+                 || kw === 'angle' || kw === 'value') {
         args[kw] = parseNumber();
+      } else if (kw === 'tags') {
+        // :tags takes a parenthesized list of strings
+        args[kw] = parseStringList();
       }
     }
     return args;
@@ -207,6 +225,86 @@ export function parseSExpr(text) {
     const children = parseChildren();
     next(); // )
     return ['taper', { axis: kw.axis || 'y', rate: kw.rate != null ? kw.rate : 0.02 }, ...children];
+  }
+
+  function parseLet() {
+    const name = parseStringOrIdent();
+    const children = parseChildren();
+    next(); // )
+    return ['let', { name: name || 'x' }, ...children];
+  }
+
+  function parseVar() {
+    const name = parseStringOrIdent();
+    next(); // )
+    return ['var', { name: name || 'x' }];
+  }
+
+  function parseGrow() {
+    const name = parseStringOrIdent();
+    const kw = parseKeywordArgs();
+    const children = parseChildren();
+    next(); // )
+    return ['grow', { name: name || 'acc', count: kw.count || 4 }, ...children];
+  }
+
+  function parseFractal() {
+    // (fractal :count N SEED SELF_STEP)
+    const kw = parseKeywordArgs();
+    const children = parseChildren();
+    next(); // )
+    return ['fractal', { count: kw.count || 3 }, ...children];
+  }
+
+  function parseStir() {
+    const children = parseChildren();
+    next(); // )
+    return ['stir', ...children];
+  }
+
+  function parseEnzyme() {
+    const kw = parseKeywordArgs();
+    // :tags is parsed as a parenthesized list of strings
+    const tagList = kw.tags || [];
+    const children = parseChildren();
+    next(); // )
+    return ['enzyme', { tags: tagList.join(' ') }, ...children];
+  }
+
+  function parseTags() {
+    // (tags ("name1" "name2" ...) CHILD)
+    const nameList = parseStringList();
+    const children = parseChildren();
+    next(); // )
+    return ['tags', { names: nameList.join(' ') }, ...children];
+  }
+
+  function parseTag() {
+    // (tag "name" CHILD)
+    const name = parseStringOrIdent();
+    const children = parseChildren();
+    next(); // )
+    return ['tag', { name: name || 'x' }, ...children];
+  }
+
+  function parseScalar() {
+    // (scalar VALUE)
+    const value = parseNumber();
+    next(); // )
+    return ['scalar', { value }];
+  }
+
+  // Parse a parenthesized list of strings: ("a" "b" "c")
+  function parseStringList() {
+    const list = [];
+    if (peek() === '(') {
+      next(); // consume (
+      while (peek() && peek() !== ')') {
+        list.push(parseStringOrIdent());
+      }
+      next(); // consume )
+    }
+    return list;
   }
 
   function parseChildren() {
