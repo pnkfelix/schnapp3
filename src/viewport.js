@@ -82,8 +82,19 @@ export function createViewport(container) {
       return;
     }
 
-    // Walk up from hit mesh to find nearest ancestor with a blockId
-    let obj = hits[0].object;
+    const hit = hits[0];
+    const hitObj = hit.object;
+
+    // CSG-meshed shapes: per-vertex provenance tells us which primitive block
+    if (hitObj.userData.vertexBlockIds && hit.face) {
+      const ids = hitObj.userData.vertexBlockIds;
+      const blockId = ids[hit.face.a] || ids[hit.face.b] || ids[hit.face.c];
+      tapCallback(blockId || null);
+      return;
+    }
+
+    // Non-CSG: walk up to find nearest ancestor with a blockId
+    let obj = hitObj;
     while (obj && !obj.userData.blockId) {
       obj = obj.parent;
     }

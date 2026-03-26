@@ -284,6 +284,24 @@ let csgResolution = 48;
 export function getResolution() { return csgResolution; }
 export function setResolution(n) { csgResolution = Math.max(16, n); }
 
+// Sample the CSG provenance field at each vertex and store as userData
+function stampProvenance(mesh, csgField) {
+  const pos = mesh.geometry.getAttribute('position');
+  if (!pos) return;
+  const blockIds = new Array(pos.count);
+  for (let i = 0; i < pos.count; i++) {
+    const r = csgField(pos.getX(i), pos.getY(i), pos.getZ(i));
+    blockIds[i] = r.blockId || null;
+  }
+  mesh.userData.vertexBlockIds = blockIds;
+}
+
+// Build a provenance field from an AST for post-processing (progressive path)
+export function buildProvenanceField(ast) {
+  const field = evalCSGField(ast);
+  return (x, y, z) => field(x, y, z).blockId || null;
+}
+
 function meshCSGNode(node) {
   const res = csgResolution;
   const bounds = estimateBounds(node);
@@ -358,7 +376,9 @@ function meshCSGNode(node) {
         vertexColors: true,
         side: THREE.DoubleSide
       });
-      group.add(new THREE.Mesh(solidGeo, solidMat));
+      const solidMesh = new THREE.Mesh(solidGeo, solidMat);
+      stampProvenance(solidMesh, csgField);
+      group.add(solidMesh);
     }
 
     // Anti-solid: use uniform grid (anti-solids are typically small/rare)
@@ -393,7 +413,9 @@ function meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorF
       vertexColors: true,
       side: THREE.DoubleSide
     });
-    group.add(new THREE.Mesh(solidGeo, solidMat));
+    const solidMesh = new THREE.Mesh(solidGeo, solidMat);
+    stampProvenance(solidMesh, csgField);
+    group.add(solidMesh);
   }
 
   const antiGeo = meshField(antiField, bounds, res);
@@ -407,17 +429,18 @@ function meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorF
 // ---- Three-component CSG field evaluation ----
 // Returns (x, y, z) => { polarity: -1|0|+1, distance: number, color: [r,g,b] }
 
-const EMPTY = { polarity: 0, distance: 1e10, color: UNSET_COLOR };
+const EMPTY = { polarity: 0, distance: 1e10, color: UNSET_COLOR, blockId: null };
 
 function evalCSGField(node) {
   const type = node[0];
+  const bid = node._blockId || null;
 
   switch (type) {
     case 'sphere': {
       const r = node[1].radius || 15;
       return (x, y, z) => {
         const d = Math.sqrt(x*x + y*y + z*z) - r;
-        return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR };
+        return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR, blockId: bid };
       };
     }
     case 'cube': {
@@ -427,7 +450,7 @@ function evalCSGField(node) {
         const outside = Math.sqrt(Math.max(qx,0)**2 + Math.max(qy,0)**2 + Math.max(qz,0)**2);
         const inside = Math.min(Math.max(qx, qy, qz), 0);
         const d = outside + inside;
-        return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR };
+        return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR, blockId: bid };
       };
     }
     case 'cylinder': {
@@ -439,7 +462,7 @@ function evalCSGField(node) {
         const outside = Math.sqrt(Math.max(dx,0)**2 + Math.max(dy,0)**2);
         const inside = Math.min(Math.max(dx, dy), 0);
         const d = outside + inside;
-        return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR };
+        return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR, blockId: bid };
       };
     }
     case 'translate': {
@@ -469,7 +492,7 @@ function evalCSGField(node) {
         : ((fields) => (x, y, z) => csgUnion(fields.map(f => f(x, y, z))))(children.map(c => evalCSGField(c)));
       return (x, y, z) => {
         const r = inner(x, y, z);
-        return { polarity: r.polarity, distance: r.distance, color };
+        return { polarity: r.polarity, distance: r.distance, color, blockId: r.blockId };
       };
     }
     case 'recolor': {
@@ -489,7 +512,7 @@ function evalCSGField(node) {
         const match = r.color !== UNSET_COLOR
           ? fromName !== UNSET_COLOR && Math.abs(r.color[0] - fromRgb[0]) + Math.abs(r.color[1] - fromRgb[1]) + Math.abs(r.color[2] - fromRgb[2]) < 0.05
           : fromName === UNSET_COLOR;
-        return { polarity: r.polarity, distance: r.distance, color: match ? toColor : r.color };
+        return { polarity: r.polarity, distance: r.distance, color: match ? toColor : r.color, blockId: r.blockId };
       };
     }
     case 'union': {
@@ -510,7 +533,7 @@ function evalCSGField(node) {
       const child = evalCSGField(children[0]);
       return (x, y, z) => {
         const r = child(x, y, z);
-        return { polarity: -r.polarity, distance: r.distance, color: r.color };
+        return { polarity: -r.polarity, distance: r.distance, color: r.color, blockId: r.blockId };
       };
     }
     case 'complement': {
@@ -520,7 +543,7 @@ function evalCSGField(node) {
       return (x, y, z) => {
         const r = child(x, y, z);
         const nd = -r.distance;
-        return { polarity: nd <= 0 ? 1 : 0, distance: nd, color: r.color };
+        return { polarity: nd <= 0 ? 1 : 0, distance: nd, color: r.color, blockId: r.blockId };
       };
     }
     case 'fuse': {
@@ -558,7 +581,12 @@ function evalCSGField(node) {
             color[2] += results[i].color[2] * w;
           }
         }
-        return { polarity: Math.sign(pSum), distance: dist, color };
+        // Provenance: pick the highest-weight contributor
+        let bestWeight = -1, bestBlockId = null;
+        for (let i = 0; i < results.length; i++) {
+          if (weights[i] > bestWeight) { bestWeight = weights[i]; bestBlockId = results[i].blockId; }
+        }
+        return { polarity: Math.sign(pSum), distance: dist, color, blockId: bestBlockId };
       };
     }
     case 'mirror': {
@@ -645,7 +673,7 @@ function evalCSGField(node) {
       const minScale = Math.min(sx, sy, sz);
       return (x, y, z) => {
         const result = child(x / sx, y / sy, z / sz);
-        return { polarity: result.polarity, distance: result.distance * minScale, color: result.color };
+        return { polarity: result.polarity, distance: result.distance * minScale, color: result.color, blockId: result.blockId };
       };
     }
     case 'tile': {
@@ -708,11 +736,11 @@ function evalCSGField(node) {
                      : (axis === 'x') ? child(x, u * invScale, v * invScale)
                      : child(u * invScale, v * invScale, z);
         // Scale distance by the local scale factor to maintain valid SDF
-        return { polarity: result.polarity, distance: result.distance * scale, color: result.color };
+        return { polarity: result.polarity, distance: result.distance * scale, color: result.color, blockId: result.blockId };
       };
     }
     default:
-      return () => ({ polarity: 0, distance: 0, color: UNSET_COLOR });
+      return () => ({ polarity: 0, distance: 0, color: UNSET_COLOR, blockId: null });
   }
 }
 
@@ -731,7 +759,7 @@ function csgUnion(results) {
       if (r.color !== UNSET_COLOR) { color = r.color; break; }
     }
   }
-  return { polarity: Math.sign(pSum), distance: best.distance, color };
+  return { polarity: Math.sign(pSum), distance: best.distance, color, blockId: best.blockId };
 }
 
 // CSG intersect: (product of polarities, max(d_A, d_B), color preferring set over unset)
@@ -749,7 +777,7 @@ function csgIntersect(results) {
       if (r.color !== UNSET_COLOR) { color = r.color; break; }
     }
   }
-  return { polarity: pProd, distance: best.distance, color };
+  return { polarity: pProd, distance: best.distance, color, blockId: best.blockId };
 }
 
 // Traverse a Three.js object and set all mesh materials to the given color
