@@ -9,6 +9,7 @@ import { meshFieldRaw, rawToGeometry } from './surface-nets.js';
 import { buildOctree, resToDepth } from './octree-core.js';
 import { evalCSGFieldInterval } from './interval-eval.js';
 import { estimateBounds } from './csg-field.js';
+import { addAntiMesh } from './evaluator.js';
 
 let gpuDevice = null;
 let gpuPipeline = null;      // uniform grid pipeline
@@ -365,14 +366,7 @@ export async function gpuEvaluate(ast, resolution = 48) {
     const antiRaw = meshFromGrid(antiGrid, null, bounds, res);
     if (antiRaw && antiRaw.faces.length > 0) {
       const geo = rawToGeometry(antiRaw);
-      const mat = new THREE.MeshStandardMaterial({
-        color: 0xcc4444,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.35,
-        depthWrite: false
-      });
-      group.add(new THREE.Mesh(geo, mat));
+      addAntiMesh(group, geo);
     }
   }
 
@@ -925,11 +919,7 @@ async function _gpuOctreeAtDepth(ast, tape, bounds, depth) {
 
   if (antiRaw && antiRaw.faces.length > 0) {
     const geo = rawToGeometry(antiRaw);
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0xcc4444, side: THREE.DoubleSide,
-      transparent: true, opacity: 0.35, depthWrite: false
-    });
-    group.add(new THREE.Mesh(geo, mat));
+    addAntiMesh(group, geo);
   }
 
   const meshMs = performance.now() - tMesh;

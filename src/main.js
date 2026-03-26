@@ -1,7 +1,7 @@
 import { createViewport } from './viewport.js';
 import { initPalette, initWorkspace, renderWorkspace, subscribe, getRootBlocks, addBlockToRoot, addBlockAsChild, updateParam, replaceFromAST } from './blocks.js';
 import { generateAST, formatSExpr } from './codegen.js';
-import { evaluate, getResolution, setResolution, getUseOctree, setUseOctree, needsFieldEval } from './evaluator.js';
+import { evaluate, getResolution, setResolution, getUseOctree, setUseOctree, getAntiCheckerSize, setAntiCheckerSize, cycleAntiWireframeMode, needsFieldEval } from './evaluator.js';
 import { meshProgressive } from './progressive.js';
 import { resToDepth } from './octree-core.js';
 import { parseSExpr } from './parser.js';
@@ -213,6 +213,11 @@ const COMMANDS = [
   { text: 'bench', hint: 'run GPU vs CPU performance benchmark' },
   { text: 'bench 48', hint: 'benchmark at resolution 48 only' },
   { text: 'bench 96', hint: 'benchmark at resolution 96 only' },
+  { text: 'visual anti via checker 1', hint: 'anti-solid checker size: tiny' },
+  { text: 'visual anti via checker 3', hint: 'anti-solid checker size: default' },
+  { text: 'visual anti via checker 5', hint: 'anti-solid checker size: large' },
+  { text: 'visual anti via checker 10', hint: 'anti-solid checker size: very large' },
+  { text: 'visual anti via wireframe', hint: 'cycle: off → full → edges' },
   ...Object.keys(DEFAULT_MODELS).map(name => ({
     text: `reset ${name}`, hint: `load ${name} model`
   })),
@@ -312,6 +317,24 @@ function executeCommand(text) {
       commandInput.blur();
       return;
     }
+  }
+  if (parts[0] === 'visual' && parts[1] === 'anti' && parts[2] === 'via' && parts[3] === 'checker' && parts[4]) {
+    const n = parseFloat(parts[4]);
+    if (!isNaN(n) && n > 0) {
+      setAntiCheckerSize(n);
+      runPipeline();
+      commandInput.value = '';
+      commandInput.blur();
+      return;
+    }
+  }
+  if (parts[0] === 'visual' && parts[1] === 'anti' && parts[2] === 'via' && parts[3] === 'wireframe') {
+    const mode = cycleAntiWireframeMode();
+    console.log('anti wireframe:', mode);
+    runPipeline();
+    commandInput.value = '';
+    commandInput.blur();
+    return;
   }
   if (parts[0] === 'reset') {
     loadDefaultModel(parts[1]);
