@@ -62,6 +62,20 @@ src/
 - **`touch-action: none` on drag handles** (palette items, block headers) to prevent scroll interference. Palette scrolls via two-finger gesture.
 - **No real CSG yet** — `union` just groups objects in a Three.js Group.
 
+## Command evaluator
+
+The app has an interactive command bar at the bottom of the UI (`#command-bar` in `index.html`, handled by `executeCommand()` in `main.js`). This is the primary way the owner tweaks runtime parameters while testing on the deployed site.
+
+**Existing commands:** `show blocks 3d`, `show blocks code`, `show blocks`, `show 3d`, `show code`, `show code 3d`, `hud`, `resolution <n>`, `octree`, `progressive`, `gpu`, `bench [n]`, `visual anti via checker <n>`, `visual anti via wireframe`, `reset [model]`.
+
+**How to add a new command:**
+1. Add a `{ text, hint }` entry to the `COMMANDS` array in `main.js` (drives autocomplete).
+2. Add a handler branch in `executeCommand()` — parse `parts[0]`, read args from `parts[1]` etc.
+3. If the command controls evaluator state, export a getter/setter pair from `evaluator.js` and import it in `main.js`.
+4. Call `runPipeline()` after changing state that affects rendering.
+
+**Important:** When adding new tunable parameters, always expose them via the command bar so they can be tested interactively on the deployed site without code changes.
+
 ## Future directions (not yet implemented)
 
 - **S-expr → blocks round-trip:** Parse S-expressions back to block tree for code editing.

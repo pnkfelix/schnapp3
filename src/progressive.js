@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { addAntiMesh } from './evaluator.js';
 
 // Progressive refinement manager.
 // Spawns parallel Web Workers at multiple octree depths, updating the display
@@ -58,14 +59,7 @@ function buildGroup(solid, anti) {
 
   const antiGeo = rawToGeometry(anti);
   if (antiGeo && antiGeo.index && antiGeo.index.count > 0) {
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0xcc4444,
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.35,
-      depthWrite: false
-    });
-    group.add(new THREE.Mesh(antiGeo, mat));
+    addAntiMesh(group, antiGeo);
   }
 
   return group;
