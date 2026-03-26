@@ -49,6 +49,47 @@ export function createViewport(container) {
   }
   animate();
 
+  // --- Tap-to-select: raycast on tap, ignoring orbit drags ---
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  let tapCallback = null;
+  let pointerDownPos = null;
+  let pointerDownTime = 0;
+
+  const canvas = renderer.domElement;
+  canvas.addEventListener('pointerdown', (e) => {
+    pointerDownPos = { x: e.clientX, y: e.clientY };
+    pointerDownTime = performance.now();
+  });
+
+  canvas.addEventListener('pointerup', (e) => {
+    if (!tapCallback || !pointerDownPos) return;
+    const dx = e.clientX - pointerDownPos.x;
+    const dy = e.clientY - pointerDownPos.y;
+    const dt = performance.now() - pointerDownTime;
+    pointerDownPos = null;
+    // Only treat as tap if pointer barely moved and was quick
+    if (dx * dx + dy * dy > 100 || dt > 300) return;
+
+    const rect = canvas.getBoundingClientRect();
+    pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+    raycaster.setFromCamera(pointer, camera);
+    const hits = raycaster.intersectObjects(contentGroup.children, true);
+    if (hits.length === 0) {
+      tapCallback(null);
+      return;
+    }
+
+    // Walk up from hit mesh to find nearest ancestor with a blockId
+    let obj = hits[0].object;
+    while (obj && !obj.userData.blockId) {
+      obj = obj.parent;
+    }
+    tapCallback(obj ? obj.userData.blockId : null);
+  });
+
   return {
     setContent(newGroup) {
       scene.remove(contentGroup);
@@ -58,6 +99,9 @@ export function createViewport(container) {
       });
       contentGroup = newGroup;
       scene.add(contentGroup);
+    },
+    onTap(callback) {
+      tapCallback = callback;
     }
   };
 }

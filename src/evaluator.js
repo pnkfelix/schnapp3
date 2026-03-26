@@ -159,6 +159,11 @@ export function evaluate(ast) {
   return { group, stats: evalStats };
 }
 
+function tagBlockId(obj, node) {
+  if (obj && node._blockId) obj.userData.blockId = node._blockId;
+  return obj;
+}
+
 function evalNode(node) {
   if (evalStats) evalStats.nodes++;
   const type = node[0];
@@ -169,13 +174,13 @@ function evalNode(node) {
       const s = p.size || 20;
       const geo = new THREE.BoxGeometry(s, s, s);
       const mat = new THREE.MeshStandardMaterial({ color: COLOR_MAP[DEFAULT_COLOR] });
-      return new THREE.Mesh(geo, mat);
+      return tagBlockId(new THREE.Mesh(geo, mat), node);
     }
     case 'sphere': {
       const p = node[1];
       const geo = new THREE.SphereGeometry(p.radius || 15, 32, 32);
       const mat = new THREE.MeshStandardMaterial({ color: COLOR_MAP[DEFAULT_COLOR] });
-      return new THREE.Mesh(geo, mat);
+      return tagBlockId(new THREE.Mesh(geo, mat), node);
     }
     case 'cylinder': {
       const p = node[1];
@@ -183,7 +188,7 @@ function evalNode(node) {
       const h = p.height || 30;
       const geo = new THREE.CylinderGeometry(r, r, h, 32);
       const mat = new THREE.MeshStandardMaterial({ color: COLOR_MAP[DEFAULT_COLOR] });
-      return new THREE.Mesh(geo, mat);
+      return tagBlockId(new THREE.Mesh(geo, mat), node);
     }
     case 'translate': {
       const p = node[1];
@@ -191,7 +196,7 @@ function evalNode(node) {
       if (children.length === 0) return null;
       // If any child needs field eval, mesh the whole translate
       if (needsFieldEval(node)) {
-        return meshCSGNode(node);
+        return tagBlockId(meshCSGNode(node), node);
       }
       const group = new THREE.Group();
       group.position.set(p.x || 0, p.y || 0, p.z || 0);
@@ -199,10 +204,10 @@ function evalNode(node) {
         const obj = evalNode(child);
         if (obj) group.add(obj);
       }
-      return group;
+      return tagBlockId(group, node);
     }
     case 'paint': {
-      if (needsFieldEval(node)) return meshCSGNode(node);
+      if (needsFieldEval(node)) return tagBlockId(meshCSGNode(node), node);
       const p = node[1];
       const color = COLOR_MAP[p.color] || COLOR_MAP[DEFAULT_COLOR];
       const children = node.slice(2);
@@ -215,10 +220,11 @@ function evalNode(node) {
           group.add(obj);
         }
       }
-      return group.children.length === 1 ? group.children[0] : group;
+      const result = group.children.length === 1 ? group.children[0] : group;
+      return tagBlockId(result, node);
     }
     case 'recolor': {
-      if (needsFieldEval(node)) return meshCSGNode(node);
+      if (needsFieldEval(node)) return tagBlockId(meshCSGNode(node), node);
       const p = node[1];
       const fromColor = COLOR_MAP[p.from] || COLOR_MAP[DEFAULT_COLOR];
       const toColor = COLOR_MAP[p.to] || COLOR_MAP[DEFAULT_COLOR];
@@ -232,27 +238,28 @@ function evalNode(node) {
           group.add(obj);
         }
       }
-      return group.children.length === 1 ? group.children[0] : group;
+      const result = group.children.length === 1 ? group.children[0] : group;
+      return tagBlockId(result, node);
     }
     case 'union': {
       const children = node.slice(1);
       if (needsFieldEval(node)) {
-        return meshCSGNode(node);
+        return tagBlockId(meshCSGNode(node), node);
       }
       const group = new THREE.Group();
       for (const child of children) {
         const obj = evalNode(child);
         if (obj) group.add(obj);
       }
-      return group;
+      return tagBlockId(group, node);
     }
     case 'intersect':
     case 'anti':
     case 'complement': {
-      return meshCSGNode(node);
+      return tagBlockId(meshCSGNode(node), node);
     }
     case 'fuse': {
-      return meshCSGNode(node);
+      return tagBlockId(meshCSGNode(node), node);
     }
     case 'mirror':
     case 'rotate':
@@ -262,7 +269,7 @@ function evalNode(node) {
     case 'tile':
     case 'bend':
     case 'taper': {
-      return meshCSGNode(node);
+      return tagBlockId(meshCSGNode(node), node);
     }
     default:
       return null;
