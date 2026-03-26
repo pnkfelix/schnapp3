@@ -23,6 +23,7 @@ const EMPTY_IV = { distance: [1e10, 1e10], polarity: [0, 0] };
 //                    if both bounds == 0 → definitely empty
 // For culling we mostly care about the distance interval.
 export function evalCSGFieldInterval(node) {
+  if (!node || !Array.isArray(node)) return () => ({ polarity: [0, 0], distance: [-Infinity, Infinity] });
   const type = node[0];
 
   switch (type) {

@@ -160,6 +160,7 @@ export function evaluate(ast) {
 }
 
 function evalNode(node) {
+  if (!node || !Array.isArray(node)) return null; // skip enzyme closures, etc.
   if (evalStats) evalStats.nodes++;
   const type = node[0];
 
@@ -403,6 +404,7 @@ function meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorF
 const EMPTY = { polarity: 0, distance: 1e10, color: UNSET_COLOR };
 
 function evalCSGField(node) {
+  if (!node || !Array.isArray(node)) return () => EMPTY;
   const type = node[0];
 
   switch (type) {

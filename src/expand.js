@@ -267,6 +267,8 @@ function runStirPool(pool) {
 
   while (changed && reactions < MAX_REACTIONS) {
     changed = false;
+
+    // Phase A: try full reactions (all wants satisfied)
     for (let ci = 0; ci < pool.length; ci++) {
       const consumer = pool[ci];
       if (!consumer || consumer.wants.size === 0) continue;
@@ -300,13 +302,56 @@ function runStirPool(pool) {
       reactions++;
       break; // restart matching
     }
+
+    // Phase B: if no full reaction fired, try partial application (currying)
+    if (!changed) {
+      for (let ci = 0; ci < pool.length; ci++) {
+        const consumer = pool[ci];
+        if (!consumer || consumer.wants.size === 0) continue;
+        if (!consumer.value || !consumer.value.__enzyme) continue;
+
+        const partial = partialMatchPool(consumer.wants, pool, ci);
+        if (!partial) continue;
+
+        // Build partially applied enzyme: bind matched tags, keep the rest
+        const enz = consumer.value;
+        const newEnv = new Map(enz.env);
+        for (const [tagName, itemIndex] of partial) {
+          newEnv.set(tagName, pool[itemIndex].value);
+        }
+
+        const remainingTags = [];
+        for (const tagName of consumer.wants) {
+          if (!partial.has(tagName)) remainingTags.push(tagName);
+        }
+
+        const newNode = [
+          'enzyme',
+          { tags: remainingTags.join(' ') },
+          ...(enz.node.length > 2 ? [enz.node[2]] : [])
+        ];
+        const partialEnzyme = { __enzyme: true, node: newNode, env: newEnv };
+
+        // Remove consumer and consumed items
+        pool[ci] = null;
+        for (const [, itemIndex] of partial) {
+          pool[itemIndex] = null;
+        }
+
+        // Add the partially applied enzyme back — it may now fully match
+        addToPool(partialEnzyme, pool);
+
+        changed = true;
+        reactions++;
+        break; // restart matching
+      }
+    }
   }
 
-  // Collect remaining values
+  // Collect remaining values (including enzyme closures for currying support)
   const remaining = [];
   for (const item of pool) {
     if (!item) continue;
-    if (item.value && item.value.__enzyme) continue;
     remaining.push(item.value);
   }
 
@@ -355,6 +400,34 @@ function matchPool(wants, pool, consumerIndex) {
   }
 
   return match;
+}
+
+// Partial match: like matchPool but returns whatever tags CAN be matched.
+// Returns Map<tagName, poolIndex> with at least 1 entry, or null if nothing matches.
+// Only returns a result if it's a proper partial match (some but not all tags).
+function partialMatchPool(wants, pool, consumerIndex) {
+  const match = new Map();
+  const used = new Set();
+
+  for (const tagName of wants) {
+    let found = -1;
+    let ambiguous = false;
+    for (let i = 0; i < pool.length; i++) {
+      if (i === consumerIndex) continue;
+      if (pool[i] === null || used.has(i)) continue;
+      if (pool[i].carries.has(tagName)) {
+        if (found >= 0) { ambiguous = true; break; }
+        found = i;
+      }
+    }
+    if (found >= 0 && !ambiguous) {
+      match.set(tagName, found);
+      used.add(found);
+    }
+  }
+
+  if (match.size > 0 && match.size < wants.size) return match;
+  return null;
 }
 
 // ---- Fractal expansion (tree-recursive grow via stir) ----
