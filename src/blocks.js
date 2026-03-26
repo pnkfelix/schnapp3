@@ -495,19 +495,138 @@ export function moveBlock(blockId, newParentId, index) {
   notify();
 }
 
+// ---- Category definitions ----
+
+// Each category's "representative" is the block shown in the bottom selector row.
+// It doubles as a draggable block AND a tap target to expand that category.
+// The representative updates to the most recently used block from that category.
+const CATEGORY_IDS = ['primitive', 'transform', 'appearance', 'combine', 'binding'];
+const categoryRepresentative = {
+  primitive: 'cube',
+  transform: 'translate',
+  appearance: 'paint',
+  combine: 'union',
+  binding: 'let',
+};
+
 // ---- Palette rendering ----
 
 let paletteEl, workspaceEl;
+let activeCategory = CATEGORY_IDS[0];
 
 export function initPalette(el) {
   paletteEl = el;
+
+  // Top row: all blocks in the active category (expanded view)
+  const itemsRow = document.createElement('div');
+  itemsRow.id = 'palette-items';
+  paletteEl.appendChild(itemsRow);
+
+  // Bottom row: one draggable representative block per category
+  const selectorRow = document.createElement('div');
+  selectorRow.id = 'palette-selector';
+  paletteEl.appendChild(selectorRow);
+
+  renderSelectorRow();
+  renderPaletteItems();
+}
+
+// Selector row items: drag → create block, tap → switch category
+function onSelectorPointerDown(e) {
+  const catId = e.currentTarget.dataset.categoryId;
+  const startX = e.clientX;
+  const startY = e.clientY;
+  const target = e.currentTarget;
+
+  // Track whether this becomes a drag or stays a tap
+  let moved = false;
+
+  function onMove(ev) {
+    const dx = ev.clientX - startX;
+    const dy = ev.clientY - startY;
+    if (Math.abs(dx) >= DRAG_THRESHOLD || Math.abs(dy) >= DRAG_THRESHOLD) {
+      moved = true;
+      // Hand off to the normal palette drag system
+      cleanup();
+      // Synthesize a palette drag from this element
+      dragState = {
+        source: 'palette',
+        blockType: target.dataset.blockType,
+        startX,
+        startY,
+        ghost: null,
+        dragging: false,
+        pointerId: e.pointerId
+      };
+      document.addEventListener('pointermove', onDragMove);
+      document.addEventListener('pointerup', onDragEnd);
+      document.addEventListener('pointercancel', onDragCancel);
+      // Trigger the first move to create the ghost
+      onDragMove(ev);
+    }
+  }
+
+  function onUp() {
+    cleanup();
+    if (!moved) {
+      // It was a tap — switch category
+      activeCategory = catId;
+      renderPaletteItems();
+      renderSelectorRow();
+    }
+  }
+
+  function cleanup() {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', cleanup);
+  }
+
+  e.preventDefault();
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+  document.addEventListener('pointercancel', cleanup);
+}
+
+function renderSelectorRow() {
+  const row = document.getElementById('palette-selector');
+  if (!row) return;
+  row.innerHTML = '';
+  for (const catId of CATEGORY_IDS) {
+    const repType = categoryRepresentative[catId];
+    const rep = BLOCK_DEFS[repType];
+    const item = document.createElement('div');
+    item.className = `palette-item palette-item--${repType}`;
+    if (catId === activeCategory) item.classList.add('palette-item--selected');
+    item.textContent = rep.label;
+    item.dataset.blockType = repType;
+    item.dataset.categoryId = catId;
+    item.addEventListener('pointerdown', onSelectorPointerDown);
+    row.appendChild(item);
+  }
+}
+
+// Update the representative for a category to the most recently used block type.
+function markBlockUsed(blockType) {
+  const def = BLOCK_DEFS[blockType];
+  if (!def) return;
+  const catId = def.category;
+  if (categoryRepresentative[catId] === blockType) return; // already the rep
+  categoryRepresentative[catId] = blockType;
+  renderSelectorRow();
+}
+
+function renderPaletteItems() {
+  const itemsRow = document.getElementById('palette-items');
+  itemsRow.innerHTML = '';
   for (const [type, def] of Object.entries(BLOCK_DEFS)) {
+    if (def.category !== activeCategory) continue;
     const item = document.createElement('div');
     item.className = `palette-item palette-item--${type}`;
     item.textContent = def.label;
     item.dataset.blockType = type;
     item.addEventListener('pointerdown', onPaletteDragStart);
-    paletteEl.appendChild(item);
+    itemsRow.appendChild(item);
   }
 }
 
@@ -847,6 +966,11 @@ function onDragEnd(e) {
         moveBlock(dragState.blockId, target, insertIndex);
       }
     }
+  }
+
+  // Update MRU representative for palette drags that landed on a valid target
+  if (dragState.source === 'palette' && raw) {
+    markBlockUsed(dragState.blockType);
   }
 
   cleanupGhost();
