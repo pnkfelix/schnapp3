@@ -175,11 +175,26 @@ html, body {
 
 #palette {
   display: flex;
-  gap: 14px;
-  padding: 8px;
-  overflow-x: auto;
+  flex-direction: column;
   flex-shrink: 0;
   border-bottom: 1px solid #0f3460;
+}
+
+#palette-items {
+  display: flex;
+  gap: 10px;
+  padding: 6px 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  min-height: 44px;
+}
+
+#palette-selector {
+  display: flex;
+  gap: 10px;
+  padding: 6px 8px;
+  overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -199,6 +214,11 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Active category's representative block in the selector row */
+.palette-item--selected {
+  border-color: rgba(255,255,255,0.6);
 }
 
 /* ---- Workspace ---- */
