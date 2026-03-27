@@ -22,8 +22,13 @@ export { COLOR_MAP, DEFAULT_COLOR, UNSET_COLOR, UNSET_RGB, EMPTY };
 export { hexToRgb };
 
 export function evalCSGField(node) {
+  if (!node || !Array.isArray(node)) return () => EMPTY;
   const type = node[0];
   switch (type) {
+    case 'tag':
+    case 'tags': {
+      return node.length > 2 ? evalCSGField(node[2]) : () => EMPTY;
+    }
     case 'sphere': {
       const r = node[1].radius || 15;
       return (x, y, z) => {
@@ -334,9 +339,11 @@ function csgIntersect(results) {
 }
 
 export function estimateBounds(node, offset = [0, 0, 0]) {
+  if (!node || !Array.isArray(node)) return { min: [offset[0]-20,offset[1]-20,offset[2]-20], max: [offset[0]+20,offset[1]+20,offset[2]+20] };
   const type = node[0];
   const pad = 5;
   switch (type) {
+    case 'tag': case 'tags': return node.length > 2 ? estimateBounds(node[2], offset) : { min: [offset[0]-20,offset[1]-20,offset[2]-20], max: [offset[0]+20,offset[1]+20,offset[2]+20] };
     case 'sphere': { const r = (node[1].radius || 15) + pad; return { min: [offset[0]-r,offset[1]-r,offset[2]-r], max: [offset[0]+r,offset[1]+r,offset[2]+r] }; }
     case 'cube': { const h = (node[1].size || 20) / 2 + pad; return { min: [offset[0]-h,offset[1]-h,offset[2]-h], max: [offset[0]+h,offset[1]+h,offset[2]+h] }; }
     case 'cylinder': { const r = (node[1].radius || 10) + pad; const h = (node[1].height || 30) / 2 + pad; return { min: [offset[0]-r,offset[1]-h,offset[2]-r], max: [offset[0]+r,offset[1]+h,offset[2]+r] }; }

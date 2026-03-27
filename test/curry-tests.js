@@ -17,8 +17,11 @@ test('enzyme with 2 tags + 1 arg → partially applied enzyme', () => {
   assert(result && result.__enzyme, 'should return an enzyme closure');
   const remainingTags = result.node[1].tags;
   assert(remainingTags === 'y', `remaining tags should be "y", got "${remainingTags}"`);
-  // x=10 should be bound in the captured env
-  assert(result.env.get('x') === 10, 'x should be bound to 10 in env');
+  // x should be bound in the captured env (as a tagged value wrapping 10)
+  const xVal = result.env.get('x');
+  // Tags now travel as metadata — the bound value is ['tag', {name:'x'}, 10]
+  const innerX = Array.isArray(xVal) && xVal[0] === 'tag' ? xVal[2] : xVal;
+  assert(innerX === 10, `x should resolve to 10, got ${JSON.stringify(xVal)}`);
 });
 
 test('partial enzyme can be fully applied in a second stir', () => {

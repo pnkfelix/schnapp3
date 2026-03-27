@@ -53,31 +53,52 @@ const BARE_CONTAINERS = new Set(['union', 'intersect', 'anti', 'complement']);
 // ---- Implicit type tags ----
 
 function implicitTags(node) {
-  // Determine what implicit tag a reduced AST node would get
+  // Determine what implicit tag a reduced AST node would get.
+  // Look through tag/tags wrappers to find the underlying type.
   if (!Array.isArray(node)) {
-    // Bare scalar
     if (typeof node === 'number') return new Set(['scalar']);
     if (typeof node === 'string') return new Set(['scalar']);
     // Bundles carry no implicit tag — they're unpacked on pool entry
     return new Set();
   }
   const type = node[0];
-  // An enzyme is a function value, not a shape or scalar
+  if (type === 'tag') return implicitTags(node.length > 2 ? node[2] : null);
+  if (type === 'tags') return implicitTags(node.length > 2 ? node[2] : null);
   if (type === 'enzyme') return new Set(['enzyme']);
-  // Everything else that's an AST node is geometry (a shape)
   return new Set(['shape']);
 }
 
-// ---- Tagged value representation ----
-// During stir expansion, values are wrapped as { tags: Set<string>, value: AST-node }
-
-function taggedValue(tags, value) {
-  return { tags: new Set(tags), value };
+// Strip tag/tags wrappers from a value, returning the bare inner value.
+// Used at consumption points (expression params) where the consumer needs
+// the raw scalar or shape, not the tagged wrapper.
+function stripTags(node) {
+  if (!Array.isArray(node)) return node;
+  const type = node[0];
+  if (type === 'tag' || type === 'tags') {
+    return stripTags(node.length > 2 ? node[2] : null);
+  }
+  return node;
 }
 
-function addTags(tv, newTags) {
-  for (const t of newTags) tv.tags.add(t);
-  return tv;
+// Collect explicit tag names from tag/tags wrappers on a value.
+// Returns { tags: string[], inner: value } where inner has wrappers removed.
+function collectExplicitTags(node) {
+  const tags = [];
+  let current = node;
+  while (Array.isArray(current)) {
+    if (current[0] === 'tag') {
+      const name = current[1] && current[1].name;
+      if (name) tags.push(name);
+      current = current.length > 2 ? current[2] : null;
+    } else if (current[0] === 'tags') {
+      const names = ((current[1] && current[1].names) || '').trim().split(/\s+/).filter(Boolean);
+      tags.push(...names);
+      current = current.length > 2 ? current[2] : null;
+    } else {
+      break;
+    }
+  }
+  return { tags, inner: current };
 }
 
 // ---- Main entry point ----
@@ -146,12 +167,12 @@ function expandNode(node, env) {
     }
 
     case 'tags': {
-      // (tags {names} child)
-      // Outside of stir context, tags wrapper is transparent — just expand child.
-      // Inside stir, collectStirItem handles tag accumulation.
+      // (tags {names} child) — preserve as metadata, expand the inner child.
       const children = node.slice(2);
       if (children.length === 0) return null;
-      return expandNode(children[0], env);
+      const inner = expandNode(children[0], env);
+      if (inner === null) return null;
+      return ['tags', node[1], inner];
     }
 
     case 'scalar': {
@@ -162,11 +183,12 @@ function expandNode(node, env) {
     }
 
     case 'tag': {
-      // (tag {name} child) — transparent outside stir.
-      // Inside stir, collectStirItem handles tag accumulation.
+      // (tag {name} child) — preserve as metadata, expand the inner child.
       const children = node.slice(2);
       if (children.length === 0) return null;
-      return expandNode(children[0], env);
+      const inner = expandNode(children[0], env);
+      if (inner === null) return null;
+      return ['tag', node[1], inner];
     }
 
     case 'enzyme': {
@@ -214,11 +236,12 @@ function expandWithContext(node, env, ctx) {
     ? node[1] : {};
   const exprSet = new Set(ctx.exprParams);
 
-  // Expand params: only walk into expression-capable slots
+  // Expand params: only walk into expression-capable slots.
+  // Strip tags at this consumption point — primitive params need bare values.
   const expandedParams = {};
   for (const [key, val] of Object.entries(params)) {
     if (exprSet.has(key) && Array.isArray(val)) {
-      expandedParams[key] = expandNode(val, env);
+      expandedParams[key] = stripTags(expandNode(val, env));
     } else {
       expandedParams[key] = val;
     }
@@ -381,7 +404,11 @@ function addToPool(expanded, pool, extraTags) {
     carries = new Set(['block']);
     wants = new Set(tagNames);
   } else {
+    // Extract explicit tags from tag/tags AST wrappers as carries.
+    // Tags now flow as metadata on values — the pool sees them.
+    const { tags: explicitTags } = collectExplicitTags(expanded);
     carries = implicitTags(expanded);
+    for (const t of explicitTags) carries.add(t);
     wants = new Set();
   }
   if (extraTags) {
@@ -514,31 +541,9 @@ function expandFractal(node, env) {
 }
 
 function collectStirItemUnified(child, env, pool) {
-  // tags wrapper: (tags ("a" "b") CHILD) — adds explicit tags to inner value
-  if (Array.isArray(child) && child[0] === 'tags') {
-    const p = child[1];
-    const nameList = (p.names || '').trim().split(/\s+/).filter(Boolean);
-    const innerChildren = child.slice(2);
-    if (innerChildren.length === 0) return;
-    const inner = expandNode(innerChildren[0], env);
-    if (inner === null) return;
-    addToPool(inner, pool, nameList);
-    return;
-  }
-
-  // Single-tag variant: (tag "name" CHILD)
-  if (Array.isArray(child) && child[0] === 'tag') {
-    const p = child[1];
-    const name = p.name || '';
-    const innerChildren = child.slice(2);
-    if (innerChildren.length === 0) return;
-    const inner = expandNode(innerChildren[0], env);
-    if (inner === null) return;
-    addToPool(inner, pool, name ? [name] : []);
-    return;
-  }
-
-  // Expand the child and add to pool
+  // Expand the child and add to pool.
+  // Tags are now preserved as AST metadata by expandNode, and addToPool
+  // extracts explicit tag names as carries. No special-casing needed.
   const expanded = expandNode(child, env);
   if (expanded === null) return;
   addToPool(expanded, pool);

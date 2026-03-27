@@ -27,6 +27,11 @@ export function evalCSGFieldInterval(node) {
   const type = node[0];
 
   switch (type) {
+    case 'tag':
+    case 'tags': {
+      return node.length > 2 ? evalCSGFieldInterval(node[2])
+        : () => ({ polarity: [0, 0], distance: [-Infinity, Infinity] });
+    }
     case 'sphere': {
       const r = node[1].radius || 15;
       return (xIv, yIv, zIv) => {

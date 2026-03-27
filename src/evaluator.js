@@ -116,8 +116,10 @@ export function needsFieldEval(node) {
   if (type === 'intersect' || type === 'anti' || type === 'complement' || type === 'fuse'
       || type === 'mirror' || type === 'rotate' || type === 'twist' || type === 'radial'
       || type === 'stretch' || type === 'tile' || type === 'bend' || type === 'taper') return true;
+  // Tags are metadata wrappers — recurse into the inner child
+  if (type === 'tag' || type === 'tags') return node.length > 2 ? needsFieldEval(node[2]) : false;
   // PL nodes should be expanded before reaching here, but handle gracefully
-  if (type === 'let' || type === 'var' || type === 'grow' || type === 'fractal' || type === 'stir' || type === 'enzyme' || type === 'tags' || type === 'tag' || type === 'scalar') return false;
+  if (type === 'let' || type === 'var' || type === 'grow' || type === 'fractal' || type === 'stir' || type === 'enzyme' || type === 'scalar') return false;
   // Check children recursively
   const start = (type === 'union' || type === 'intersect' || type === 'anti' || type === 'complement') ? 1 : 2;
   const children = node.slice(start);
@@ -257,6 +259,12 @@ function evalNode(node) {
         if (obj) group.add(obj);
       }
       return group;
+    }
+    case 'tag':
+    case 'tags': {
+      // Tags are metadata — strip and evaluate the inner child
+      const inner = node.length > 2 ? node[2] : null;
+      return inner ? evalNode(inner) : null;
     }
     case 'intersect':
     case 'anti':
@@ -419,6 +427,10 @@ function evalCSGField(node) {
   const type = node[0];
 
   switch (type) {
+    case 'tag':
+    case 'tags': {
+      return node.length > 2 ? evalCSGField(node[2]) : () => EMPTY;
+    }
     case 'sphere': {
       const r = node[1].radius || 15;
       return (x, y, z) => {

@@ -75,6 +75,10 @@ function compileNode(node, tape) {
   const type = node[0];
 
   switch (type) {
+    case 'tag':
+    case 'tags': {
+      return node.length > 2 ? compileNode(node[2], tape) : 0;
+    }
     case 'sphere': {
       pushOp(tape, OP_SPHERE);
       tape.push(node[1].radius || 15);
