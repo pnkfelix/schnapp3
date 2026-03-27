@@ -20,42 +20,42 @@ closures are *reactive* — they have unsatisfied wants and can fire when
 placed in a stir with matching values. Bundles are transparent containers
 that unpack when they enter a stir pool.
 
-Tags are **not** a separate kind of value. They are metadata attached to
-values via wrapper nodes:
+Tags are **not** a separate kind of value. They are a field carried by
+structured values:
 
-```
-(tag "name" v)              v with an extra tag "name" attached
-(tags "a b ..." v)          v with multiple tags (sugar for nested tag wrappers)
-```
+- **AST nodes** carry tags in their params object: `['sphere', {radius: 10, _tags: ['x']}]`
+- **Enzyme closures** carry tags in a `.tags` field: `{ __enzyme, node, env, tags: ['x'] }`
+- **Bundles** carry tags in a `.tags` field: `{ __bundle, items, tags: ['x'] }`
+- **Bare scalars** (numbers) cannot carry tags directly. Tagging a scalar promotes
+  it to a structured `['scalar', {value: n, _tags: ['x']}]` node. When all tags
+  are stripped, the scalar reverts to a bare number.
 
-`(tag "x" v)` is still `v` — the same underlying scalar, shape, enzyme,
-or bundle — just decorated with routing metadata. Tags do not change the
-kind of value; they travel with it and are transparent to all operators
-except stir (which reads them for matching) and expression params (which
-strip them to get the bare value).
+The `(tag "name" v)` and `(tags "names" v)` syntax nodes are consumed during
+expansion: they add names to the value's `_tags` and disappear. There is no
+`tag` node type in the expanded AST — only `_tags` fields on existing values.
 
 ## Tags as metadata
 
 Tags are persistent metadata on values. They flow through `let`/`var`
 bindings, stir results, and enzyme closures without being stripped.
 
-Tags are only stripped at **consumption points**:
+Tags are only stripped at **consumption points**: expression params in
+primitives. When `(sphere {radius: (var "x")})` is expanded and `x` is
+bound to `['scalar', {value: 15, _tags: ['r']}]`, the expansion strips
+tags to get the bare `15` before writing it into the sphere's params.
 
-1. **Expression params** in primitives: `(sphere {radius: (var "x")})` —
-   if `x` is bound to `(tag "r" 15)`, `stripTags` peels to `15` before
-   the evaluator sees it.
+Evaluators (`evalNode`, `evalCSGField`, GPU tape compiler, etc.) never
+see tag-related node types. They see ordinary AST nodes where some params
+objects happen to have a `_tags` field, which they simply ignore.
 
-2. **Evaluator rendering**: `evalNode`, `evalCSGField`, etc. all pass
-   through `tag`/`tags` nodes transparently, evaluating the inner child.
-
-Every value carries zero or more explicit tags (from `tag`/`tags` wrappers)
+Every value carries zero or more explicit tags (from the `_tags` field)
 plus one implicit type-tag derived from its underlying kind:
 
 ```
 implicitTags(n)            = {"scalar"}
+implicitTags((scalar ...)) = {"scalar"}
 implicitTags((shape ...))  = {"shape"}
 implicitTags(enzyme)       = {"enzyme"}
-implicitTags((tag _ v))    = implicitTags(v)    (look through wrappers)
 ```
 
 ## Enzymes
@@ -183,10 +183,9 @@ When an enzyme consumes a value by matching tag `"x"`, the tag `"x"` is
 **stripped** from the bound value. Other tags are preserved:
 
 ```
-stripOneTag((tag "x" (tag "y" 42)), "x")  =  (tag "y" 42)
-stripOneTag((tag "y" (tag "x" 42)), "x")  =  (tag "y" 42)
-stripOneTag((tags "x y" 42), "x")         =  (tag "y" 42)
-stripOneTag((tag "x" 42), "x")            =  42
+stripOneTag(['scalar', {value: 42, _tags: ['x', 'y']}], "x")  =  ['scalar', {value: 42, _tags: ['y']}]
+stripOneTag(['scalar', {value: 42, _tags: ['x']}], "x")       =  42   (reverts to bare scalar)
+stripOneTag(['sphere', {radius: 10, _tags: ['x']}], "x")      =  ['sphere', {radius: 10}]
 ```
 
 Rationale: the matched tag has served its routing purpose. The enzyme body

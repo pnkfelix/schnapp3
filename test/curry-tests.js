@@ -167,17 +167,18 @@ test('matched tag is stripped, other tags preserved', () => {
     ['tag', { name: 'x' }, ['tag', { name: 'y' }, ['scalar', { value: 99 }]]]
   ];
   const result = expandAST(ast);
-  // Enzyme fires with x = (tag "y" 99) — "x" stripped, "y" kept.
-  // Body returns (var "x") = (tag "y" 99).
-  // Since this is the stir result and it's a tag node, it survives.
+  // Tags are _tags on the value: ['scalar', {value: 99, _tags: ['y']}]
+  // ("x" stripped, "y" preserved)
   assert(Array.isArray(result), 'should be an AST node');
-  assert(result[0] === 'tag', `should be tag wrapper, got ${result[0]}`);
-  assert(result[1].name === 'y', `should preserve tag "y", got "${result[1].name}"`);
-  assert(result[2] === 99, `inner value should be 99, got ${result[2]}`);
+  assert(result[0] === 'scalar', `should be scalar, got ${result[0]}`);
+  assert(result[1].value === 99, `inner value should be 99, got ${result[1].value}`);
+  const tags = result[1]._tags || [];
+  assert(tags.includes('y'), `should preserve tag "y", got ${JSON.stringify(tags)}`);
+  assert(!tags.includes('x'), `should NOT contain tag "x", got ${JSON.stringify(tags)}`);
 });
 
 test('matched tag stripped from tags (plural) wrapper', () => {
-  // (tags "x y" 42) matched on "x" → should become (tag "y" 42)
+  // (tags "x y" 42) matched on "x" → scalar with _tags: ['y']
   const ast = ['stir',
     ['enzyme', { tags: 'x' },
       ['var', { name: 'x' }]],
@@ -185,13 +186,15 @@ test('matched tag stripped from tags (plural) wrapper', () => {
   ];
   const result = expandAST(ast);
   assert(Array.isArray(result), 'should be an AST node');
-  assert(result[0] === 'tag', `should be tag wrapper, got ${result[0]}`);
-  assert(result[1].name === 'y', `should preserve tag "y", got "${result[1].name}"`);
-  assert(result[2] === 42, `inner value should be 42, got ${result[2]}`);
+  assert(result[0] === 'scalar', `should be scalar, got ${result[0]}`);
+  assert(result[1].value === 42, `inner value should be 42, got ${result[1].value}`);
+  const tags = result[1]._tags || [];
+  assert(tags.includes('y'), `should preserve tag "y", got ${JSON.stringify(tags)}`);
+  assert(!tags.includes('x'), `should NOT contain tag "x", got ${JSON.stringify(tags)}`);
 });
 
 test('all tags stripped when only tag is the matched one', () => {
-  // (tag "x" 42) matched on "x" → bare 42
+  // (tag "x" 42) matched on "x" → bare 42 (promoted scalar reverts)
   const ast = ['stir',
     ['enzyme', { tags: 'x' },
       ['var', { name: 'x' }]],

@@ -21,14 +21,15 @@ const EMPTY = { polarity: 0, distance: 1e10, color: UNSET_COLOR };
 export { COLOR_MAP, DEFAULT_COLOR, UNSET_COLOR, UNSET_RGB, EMPTY };
 export { hexToRgb };
 
+function nodeChildren(node) {
+  if (node[1] && typeof node[1] === 'object' && !Array.isArray(node[1])) return node.slice(2);
+  return node.slice(1);
+}
+
 export function evalCSGField(node) {
   if (!node || !Array.isArray(node)) return () => EMPTY;
   const type = node[0];
   switch (type) {
-    case 'tag':
-    case 'tags': {
-      return node.length > 2 ? evalCSGField(node[2]) : () => EMPTY;
-    }
     case 'sphere': {
       const r = node[1].radius || 15;
       return (x, y, z) => {
@@ -109,19 +110,19 @@ export function evalCSGField(node) {
       };
     }
     case 'union': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => EMPTY;
       const fields = children.map(c => evalCSGField(c));
       return (x, y, z) => csgUnion(fields.map(f => f(x, y, z)));
     }
     case 'intersect': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => EMPTY;
       const fields = children.map(c => evalCSGField(c));
       return (x, y, z) => csgIntersect(fields.map(f => f(x, y, z)));
     }
     case 'anti': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => EMPTY;
       const child = evalCSGField(children[0]);
       return (x, y, z) => {
@@ -130,7 +131,7 @@ export function evalCSGField(node) {
       };
     }
     case 'complement': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => EMPTY;
       const child = evalCSGField(children[0]);
       return (x, y, z) => {
@@ -343,13 +344,12 @@ export function estimateBounds(node, offset = [0, 0, 0]) {
   const type = node[0];
   const pad = 5;
   switch (type) {
-    case 'tag': case 'tags': return node.length > 2 ? estimateBounds(node[2], offset) : { min: [offset[0]-20,offset[1]-20,offset[2]-20], max: [offset[0]+20,offset[1]+20,offset[2]+20] };
     case 'sphere': { const r = (node[1].radius || 15) + pad; return { min: [offset[0]-r,offset[1]-r,offset[2]-r], max: [offset[0]+r,offset[1]+r,offset[2]+r] }; }
     case 'cube': { const h = (node[1].size || 20) / 2 + pad; return { min: [offset[0]-h,offset[1]-h,offset[2]-h], max: [offset[0]+h,offset[1]+h,offset[2]+h] }; }
     case 'cylinder': { const r = (node[1].radius || 10) + pad; const h = (node[1].height || 30) / 2 + pad; return { min: [offset[0]-r,offset[1]-h,offset[2]-r], max: [offset[0]+r,offset[1]+h,offset[2]+r] }; }
     case 'translate': { const p = node[1]; const no = [offset[0]+(p.x||0), offset[1]+(p.y||0), offset[2]+(p.z||0)]; return mergeBounds(node.slice(2).map(c => estimateBounds(c, no))); }
     case 'paint': case 'recolor': return mergeBounds(node.slice(2).map(c => estimateBounds(c, offset)));
-    case 'anti': case 'complement': return mergeBounds(node.slice(1).map(c => estimateBounds(c, offset)));
+    case 'anti': case 'complement': return mergeBounds(nodeChildren(node).map(c => estimateBounds(c, offset)));
     case 'mirror': {
       const cb = mergeBounds(node.slice(2).map(c => estimateBounds(c, offset)));
       const ai = (node[1].axis || 'x') === 'x' ? 0 : (node[1].axis || 'x') === 'y' ? 1 : 2;
@@ -417,8 +417,8 @@ export function estimateBounds(node, offset = [0, 0, 0]) {
       return cb;
     }
     case 'union': case 'intersect': case 'fuse': {
-      const start = type === 'fuse' ? 2 : 1;
-      const merged = mergeBounds(node.slice(start).map(c => estimateBounds(c, offset)));
+      const children = (type === 'fuse') ? node.slice(2) : nodeChildren(node);
+      const merged = mergeBounds(children.map(c => estimateBounds(c, offset)));
       if (type === 'fuse') { const k = node[1].k || 5; merged.min = merged.min.map(v => v - k); merged.max = merged.max.map(v => v + k); }
       return merged;
     }
