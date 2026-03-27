@@ -658,6 +658,26 @@ export function renderWorkspace() {
   workspaceEl.appendChild(rootDrop);
 }
 
+let highlightTimer = null;
+export function highlightBlock(blockId) {
+  // Clear any existing highlight
+  if (workspaceEl) {
+    for (const el of workspaceEl.querySelectorAll('.block--highlight')) {
+      el.classList.remove('block--highlight');
+    }
+  }
+  if (highlightTimer) { clearTimeout(highlightTimer); highlightTimer = null; }
+  if (!blockId || !workspaceEl) return;
+  const el = workspaceEl.querySelector(`.block[data-block-id="${blockId}"]`);
+  if (!el) return;
+  el.classList.add('block--highlight');
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  highlightTimer = setTimeout(() => {
+    el.classList.remove('block--highlight');
+    highlightTimer = null;
+  }, 2000);
+}
+
 function createParamInput(p, block) {
   const lbl = document.createElement('label');
   const span = document.createElement('span');

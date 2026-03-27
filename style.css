@@ -250,6 +250,11 @@ html, body {
   margin-bottom: 6px;
   border: 2px solid rgba(255,255,255,0.1);
 }
+.block--highlight {
+  border-color: #fff;
+  box-shadow: 0 0 12px 2px rgba(255,255,255,0.5);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
 
 .block__header {
   display: flex;

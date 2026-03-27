@@ -27,21 +27,26 @@ function blockToAST(block) {
     }
   }
 
+  let result;
   if (def.maxChildren === 0) {
     // Primitive: [type, params]
-    return [block.type, params];
-  }
+    result = [block.type, params];
+  } else {
+    // Container: [type, params (if any), ...children]
+    const childExprs = block.children.map(blockToAST);
 
-  // Container: [type, params (if any), ...children]
-  const childExprs = block.children.map(blockToAST);
-
-  // Parameterless containers: union, intersect, anti, complement
-  const noParamTypes = ['union', 'intersect', 'anti', 'complement', 'stir'];
-  if (noParamTypes.includes(block.type)) {
-    return [block.type, ...childExprs];
+    // Parameterless containers: union, intersect, anti, complement
+    const noParamTypes = ['union', 'intersect', 'anti', 'complement', 'stir'];
+    if (noParamTypes.includes(block.type)) {
+      result = [block.type, ...childExprs];
+    } else {
+      // All other containers have params
+      result = [block.type, params, ...childExprs];
+    }
   }
-  // All other containers have params
-  return [block.type, params, ...childExprs];
+  // Annotate with block ID for tap-to-highlight (non-enumerable, won't affect formatSExpr)
+  result._blockId = block.id;
+  return result;
 }
 
 // S-expression AST → pretty-printed string
