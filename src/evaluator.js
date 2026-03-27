@@ -353,11 +353,17 @@ function meshCSGNode(node) {
     // We return { distance: [lo, hi] } for the octree classifier.
     const solidIntervalField = (xIv, yIv, zIv) => {
       const r = intervalField(xIv, yIv, zIv);
-      // If polarity can never be > 0, this region has no solid → push distance positive
-      if (r.polarity[1] <= 0) {
-        return { distance: [0.01, Infinity], polarity: [0, 0] };
-      }
-      return r;
+      // No solid in this region — push distance positive
+      if (r.polarity[1] <= 0) return { distance: [0.01, Infinity], polarity: [0, 0] };
+      // Entirely solid — use raw distance
+      if (r.polarity[0] > 0) return r;
+      // Polarity straddles: region contains a solid/cancelled boundary.
+      // The solidField has a zero-crossing here even if the raw distance
+      // interval is entirely negative. Force ambiguous classification.
+      return {
+        distance: [Math.min(r.distance[0], -0.01), Math.max(r.distance[1], 0.01)],
+        polarity: r.polarity
+      };
     };
 
     const leaves = buildOctree(solidIntervalField, bounds, depth, octreeStats);

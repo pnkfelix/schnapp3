@@ -768,8 +768,16 @@ async function _gpuOctreeAtDepth(ast, tape, bounds, depth) {
 
   const solidIntervalField = (xIv, yIv, zIv) => {
     const r = intervalField(xIv, yIv, zIv);
+    // No solid in this region — push distance positive
     if (r.polarity[1] <= 0) return { distance: [0.01, Infinity], polarity: [0, 0] };
-    return r;
+    // Entirely solid — use raw distance
+    if (r.polarity[0] > 0) return r;
+    // Polarity straddles: region contains a solid/cancelled boundary.
+    // Force ambiguous classification so the octree subdivides.
+    return {
+      distance: [Math.min(r.distance[0], -0.01), Math.max(r.distance[1], 0.01)],
+      polarity: r.polarity
+    };
   };
 
   const octreeStats = {
