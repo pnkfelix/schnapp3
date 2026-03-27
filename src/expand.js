@@ -132,12 +132,41 @@ function collectExplicitTags(node) {
   return { tags, inner: current };
 }
 
+// ---- Strip all tags from a fully-expanded AST ----
+// Tags exist only during expansion (for stir routing). Once all stirs
+// have fired and all enzymes have been resolved, remaining tags are
+// vestigial. This pass removes them so downstream consumers (evaluator,
+// CSG field, GPU tape, etc.) never see tag/tags nodes.
+
+function stripAllTags(node) {
+  if (!node || !Array.isArray(node)) return node;
+  const type = node[0];
+  if (type === 'tag' || type === 'tags') {
+    const child = node.length > 2 ? node[2] : null;
+    return stripAllTags(child);
+  }
+  // Recurse into children
+  let changed = false;
+  const result = node.map(item => {
+    if (Array.isArray(item)) {
+      const stripped = stripAllTags(item);
+      if (stripped !== item) changed = true;
+      return stripped;
+    }
+    return item;
+  });
+  return changed ? result : node;
+}
+
 // ---- Main entry point ----
 
 export function expandAST(ast, env) {
   if (!ast) return ast;
   if (!env) env = new Map();
-  return expandNode(ast, env);
+  const expanded = expandNode(ast, env);
+  // Strip all remaining tags — they've served their routing purpose
+  // during expansion and should not leak to downstream consumers.
+  return stripAllTags(expanded);
 }
 
 function expandNode(node, env) {
@@ -268,7 +297,9 @@ function expandWithContext(node, env, ctx) {
   const exprSet = new Set(ctx.exprParams);
 
   // Expand params: only walk into expression-capable slots.
-  // Strip tags at this consumption point — primitive params need bare values.
+  // Strip tags here because param values live inside a plain object, not
+  // as AST children — stripAllTags (which walks the AST tree) won't
+  // reach inside params objects to clean them up.
   const expandedParams = {};
   for (const [key, val] of Object.entries(params)) {
     if (exprSet.has(key) && Array.isArray(val)) {
