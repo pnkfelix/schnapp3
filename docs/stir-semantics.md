@@ -6,13 +6,11 @@ work, and is intended as groundwork for a future formal SOS treatment.
 
 ## Values
 
-The language has five kinds of runtime value:
+The language has four kinds of runtime value:
 
 ```
 v  ::=  n                              scalar (number)
      |  (shape ...)                    geometry AST node (cube, sphere, union, ...)
-     |  (tag "name" v)                 tagged value
-     |  (tags "a b ..." v)             multi-tagged value (sugar for nested tags)
      |  { enzyme, node, env }          enzyme closure
      |  { bundle, [v1, v2, ...] }      bundle of values
 ```
@@ -21,6 +19,20 @@ Scalars and shapes are *inert* — they don't react on their own. Enzyme
 closures are *reactive* — they have unsatisfied wants and can fire when
 placed in a stir with matching values. Bundles are transparent containers
 that unpack when they enter a stir pool.
+
+Tags are **not** a separate kind of value. They are metadata attached to
+values via wrapper nodes:
+
+```
+(tag "name" v)              v with an extra tag "name" attached
+(tags "a b ..." v)          v with multiple tags (sugar for nested tag wrappers)
+```
+
+`(tag "x" v)` is still `v` — the same underlying scalar, shape, enzyme,
+or bundle — just decorated with routing metadata. Tags do not change the
+kind of value; they travel with it and are transparent to all operators
+except stir (which reads them for matching) and expression params (which
+strip them to get the bare value).
 
 ## Tags as metadata
 
