@@ -193,6 +193,55 @@ test('matched tag stripped from tags (plural) wrapper', () => {
   assert(!tags.includes('x'), `should NOT contain tag "x", got ${JSON.stringify(tags)}`);
 });
 
+suite('enzyme currying — let-bound enzyme across stirs');
+
+test('lone enzyme survives first stir, fires in second stir', () => {
+  // User example: enzyme wanting "a" with constant body (sphere 15)
+  // First stir: no matching args → enzyme survives as result
+  // Second stir: enzyme + tagged cylinder → enzyme fires → sphere(15)
+  const ast = ['let', { name: 'mix' },
+    ['stir',
+      ['enzyme', { tags: 'a' },
+        ['sphere', { radius: 15 }]]],
+    ['stir',
+      ['var', { name: 'mix' }],
+      ['tag', { name: 'a' },
+        ['cylinder', { radius: 10, height: 30 }]]]
+  ];
+  const result = expandAST(ast);
+  assert(Array.isArray(result), 'should be an AST node');
+  assert(result[0] === 'sphere', `should be sphere, got ${result[0]}`);
+  assert(result[1].radius === 15, `radius should be 15, got ${result[1].radius}`);
+});
+
+test('lone enzyme survives first stir, body uses argument via var', () => {
+  // Same pattern but enzyme body references (var "a") as a scalar
+  const ast = ['let', { name: 'mix' },
+    ['stir',
+      ['enzyme', { tags: 'a' },
+        ['sphere', { radius: ['var', { name: 'a' }] }]]],
+    ['stir',
+      ['var', { name: 'mix' }],
+      ['tag', { name: 'a' }, ['scalar', { value: 42 }]]]
+  ];
+  const result = expandAST(ast);
+  assert(Array.isArray(result), 'should be an AST node');
+  assert(result[0] === 'sphere', `should be sphere, got ${result[0]}`);
+  assert(result[1].radius === 42, `radius should be 42, got ${result[1].radius}`);
+});
+
+test('lone enzyme in stir with no other items returns enzyme closure', () => {
+  // Stir with just one enzyme and nothing else
+  const ast = ['stir',
+    ['enzyme', { tags: 'a' },
+      ['cube', { size: 10 }]]
+  ];
+  const result = expandAST(ast);
+  assert(result && result.__enzyme, 'should return enzyme closure');
+  const remainingTags = result.node[1].tags;
+  assert(remainingTags === 'a', `should want "a", got "${remainingTags}"`);
+});
+
 test('all tags stripped when only tag is the matched one', () => {
   // (tag "x" 42) matched on "x" → bare 42 (promoted scalar reverts)
   const ast = ['stir',
