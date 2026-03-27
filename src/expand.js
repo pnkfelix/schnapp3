@@ -285,19 +285,18 @@ function runStirPool(pool) {
         bodyEnv.set(tagName, pool[itemIndex].value);
       }
 
-      const body = enz.node.length > 2 ? enz.node[2] : ['union'];
-      const result = expandNode(body, bodyEnv);
-
       // Remove consumer and consumed items
       pool[ci] = null;
       for (const [, itemIndex] of match) {
         pool[itemIndex] = null;
       }
 
-      // Add the result back into the pool
-      if (result !== null) {
-        addToPool(result, pool);
-      }
+      // Add the body's result back into the pool via collectStirItemUnified
+      // so that (tag ...) / (tags ...) wrappers in the body produce
+      // explicitly tagged pool entries — enabling chain reactions where
+      // one enzyme's output carries the tag another enzyme seeks.
+      const body = enz.node.length > 2 ? enz.node[2] : ['union'];
+      collectStirItemUnified(body, bodyEnv, pool);
 
       changed = true;
       reactions++;
