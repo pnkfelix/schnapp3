@@ -80,6 +80,37 @@ function stripTags(node) {
   return node;
 }
 
+// Strip a single named tag from a value, preserving all other tag wrappers.
+// Used when an enzyme consumes a tagged value: the matched tag has served its
+// routing purpose and is removed, but other tags remain as metadata.
+function stripOneTag(node, tagName) {
+  if (!Array.isArray(node)) return node;
+  if (node[0] === 'tag') {
+    const name = node[1] && node[1].name;
+    const child = node.length > 2 ? node[2] : null;
+    if (name === tagName) return child; // matched — strip this layer
+    // Not matched — recurse into child, preserve this wrapper
+    const stripped = stripOneTag(child, tagName);
+    return stripped === child ? node : ['tag', node[1], stripped];
+  }
+  if (node[0] === 'tags') {
+    const names = ((node[1] && node[1].names) || '').trim().split(/\s+/).filter(Boolean);
+    const child = node.length > 2 ? node[2] : null;
+    const idx = names.indexOf(tagName);
+    if (idx >= 0) {
+      // Remove the matched name from this tags wrapper
+      const remaining = names.filter((_, i) => i !== idx);
+      if (remaining.length === 0) return child; // no names left — strip wrapper
+      if (remaining.length === 1) return ['tag', { name: remaining[0] }, child];
+      return ['tags', { names: remaining.join(' ') }, child];
+    }
+    // Not in this wrapper — recurse into child
+    const stripped = stripOneTag(child, tagName);
+    return stripped === child ? node : ['tags', node[1], stripped];
+  }
+  return node;
+}
+
 // Collect explicit tag names from tag/tags wrappers on a value.
 // Returns { tags: string[], inner: value } where inner has wrappers removed.
 function collectExplicitTags(node) {
@@ -301,11 +332,11 @@ function runStirPool(pool) {
       const match = matchPool(consumer.wants, pool, ci);
       if (!match) continue;
 
-      // Fire the reaction
+      // Fire the reaction — strip the matched tag from each consumed value
       const enz = consumer.value;
       const bodyEnv = new Map(enz.env);
       for (const [tagName, itemIndex] of match) {
-        bodyEnv.set(tagName, pool[itemIndex].value);
+        bodyEnv.set(tagName, stripOneTag(pool[itemIndex].value, tagName));
       }
 
       // Remove consumer and consumed items
@@ -336,11 +367,11 @@ function runStirPool(pool) {
         const partial = partialMatchPool(consumer.wants, pool, ci);
         if (!partial) continue;
 
-        // Build partially applied enzyme: bind matched tags, keep the rest
+        // Build partially applied enzyme: bind matched tags (stripped), keep the rest
         const enz = consumer.value;
         const newEnv = new Map(enz.env);
         for (const [tagName, itemIndex] of partial) {
-          newEnv.set(tagName, pool[itemIndex].value);
+          newEnv.set(tagName, stripOneTag(pool[itemIndex].value, tagName));
         }
 
         const remainingTags = [];

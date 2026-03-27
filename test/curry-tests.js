@@ -17,11 +17,9 @@ test('enzyme with 2 tags + 1 arg → partially applied enzyme', () => {
   assert(result && result.__enzyme, 'should return an enzyme closure');
   const remainingTags = result.node[1].tags;
   assert(remainingTags === 'y', `remaining tags should be "y", got "${remainingTags}"`);
-  // x should be bound in the captured env (as a tagged value wrapping 10)
+  // x should be bound in the captured env — matched tag "x" is stripped
   const xVal = result.env.get('x');
-  // Tags now travel as metadata — the bound value is ['tag', {name:'x'}, 10]
-  const innerX = Array.isArray(xVal) && xVal[0] === 'tag' ? xVal[2] : xVal;
-  assert(innerX === 10, `x should resolve to 10, got ${JSON.stringify(xVal)}`);
+  assert(xVal === 10, `x should be bound to 10 (tag stripped), got ${JSON.stringify(xVal)}`);
 });
 
 test('partial enzyme can be fully applied in a second stir', () => {
@@ -156,4 +154,49 @@ test('enzyme with no matching args at all is preserved', () => {
   // Result should be a bundle of the enzyme + the sphere.
   assert(result && result.__bundle, 'should return a bundle');
   assert(result.items.length === 2, 'bundle should have 2 items');
+});
+
+suite('enzyme currying — tag stripping on match');
+
+test('matched tag is stripped, other tags preserved', () => {
+  // Value has tags "x" and "y". Enzyme wants "x".
+  // After match, the bound value should carry "y" but not "x".
+  const ast = ['stir',
+    ['enzyme', { tags: 'x' },
+      ['var', { name: 'x' }]],  // body just returns the bound value
+    ['tag', { name: 'x' }, ['tag', { name: 'y' }, ['scalar', { value: 99 }]]]
+  ];
+  const result = expandAST(ast);
+  // Enzyme fires with x = (tag "y" 99) — "x" stripped, "y" kept.
+  // Body returns (var "x") = (tag "y" 99).
+  // Since this is the stir result and it's a tag node, it survives.
+  assert(Array.isArray(result), 'should be an AST node');
+  assert(result[0] === 'tag', `should be tag wrapper, got ${result[0]}`);
+  assert(result[1].name === 'y', `should preserve tag "y", got "${result[1].name}"`);
+  assert(result[2] === 99, `inner value should be 99, got ${result[2]}`);
+});
+
+test('matched tag stripped from tags (plural) wrapper', () => {
+  // (tags "x y" 42) matched on "x" → should become (tag "y" 42)
+  const ast = ['stir',
+    ['enzyme', { tags: 'x' },
+      ['var', { name: 'x' }]],
+    ['tags', { names: 'x y' }, ['scalar', { value: 42 }]]
+  ];
+  const result = expandAST(ast);
+  assert(Array.isArray(result), 'should be an AST node');
+  assert(result[0] === 'tag', `should be tag wrapper, got ${result[0]}`);
+  assert(result[1].name === 'y', `should preserve tag "y", got "${result[1].name}"`);
+  assert(result[2] === 42, `inner value should be 42, got ${result[2]}`);
+});
+
+test('all tags stripped when only tag is the matched one', () => {
+  // (tag "x" 42) matched on "x" → bare 42
+  const ast = ['stir',
+    ['enzyme', { tags: 'x' },
+      ['var', { name: 'x' }]],
+    ['tag', { name: 'x' }, ['scalar', { value: 42 }]]
+  ];
+  const result = expandAST(ast);
+  assert(result === 42, `should be bare 42, got ${JSON.stringify(result)}`);
 });
