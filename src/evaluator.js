@@ -160,7 +160,18 @@ export function evaluate(ast) {
 }
 
 function evalNode(node) {
-  if (!node || !Array.isArray(node)) return null; // skip enzyme closures, etc.
+  if (!node || !Array.isArray(node)) {
+    // Bundles from curried stir: evaluate the non-enzyme items as a union
+    if (node && node.__bundle) {
+      const group = new THREE.Group();
+      for (const item of node.items) {
+        const obj = evalNode(item);
+        if (obj) group.add(obj);
+      }
+      return group.children.length ? group : null;
+    }
+    return null; // skip enzyme closures, etc.
+  }
   if (evalStats) evalStats.nodes++;
   const type = node[0];
 

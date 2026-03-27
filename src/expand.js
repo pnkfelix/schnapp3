@@ -58,6 +58,7 @@ function implicitTags(node) {
     // Bare scalar
     if (typeof node === 'number') return new Set(['scalar']);
     if (typeof node === 'string') return new Set(['scalar']);
+    // Bundles carry no implicit tag — they're unpacked on pool entry
     return new Set();
   }
   const type = node[0];
@@ -350,18 +351,31 @@ function runStirPool(pool) {
 
   // Collect remaining values (including enzyme closures for currying support)
   const remaining = [];
+  let hasEnzyme = false;
   for (const item of pool) {
     if (!item) continue;
     remaining.push(item.value);
+    if (item.value && item.value.__enzyme) hasEnzyme = true;
   }
 
   if (remaining.length === 0) return null;
   if (remaining.length === 1) return remaining[0];
+  // If any enzymes survive, bundle so a later stir can unpack them.
+  // A plain ['union', ...] would bury the enzymes inside an AST node.
+  if (hasEnzyme) return { __bundle: true, items: remaining };
   return ['union', ...remaining];
 }
 
 // Add an already-expanded value to the pool, with optional extra tags
 function addToPool(expanded, pool, extraTags) {
+  // Unpack bundles: each item enters the pool individually
+  if (expanded && expanded.__bundle) {
+    for (const item of expanded.items) {
+      addToPool(item, pool, extraTags);
+    }
+    return;
+  }
+
   let carries, wants;
   if (expanded && expanded.__enzyme) {
     const tagNames = (expanded.node[1].tags || '').trim().split(/\s+/).filter(Boolean);
