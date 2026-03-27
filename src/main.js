@@ -197,6 +197,14 @@ function showPanels(names) {
   }
 }
 
+const PREFIX_HINTS = {
+  show: 'choose visible panels',
+  resolution: 'set mesh resolution',
+  reset: 'load a model',
+  bench: 'run performance benchmark',
+  visual: 'anti-solid visualization',
+};
+
 const COMMANDS = [
   { text: 'show blocks 3d', hint: 'blocks + 3D preview' },
   { text: 'show blocks code', hint: 'blocks + code preview' },
@@ -234,9 +242,58 @@ let selectedIndex = -1;
 
 function updateAutocomplete() {
   const val = commandInput.value.trim().toLowerCase();
-  const matches = val.length === 0
-    ? COMMANDS
-    : COMMANDS.filter(c => c.text.startsWith(val) || c.text.includes(val));
+
+  // When input is empty, show unique first-word prefixes instead of all commands
+  if (val.length === 0) {
+    const prefixes = [];
+    const seen = new Set();
+    for (const c of COMMANDS) {
+      const first = c.text.split(/\s+/)[0];
+      if (!seen.has(first)) {
+        seen.add(first);
+        prefixes.push(first);
+      }
+    }
+    selectedIndex = -1;
+    autocompleteEl.innerHTML = '';
+    for (const prefix of prefixes) {
+      const item = document.createElement('div');
+      item.className = 'autocomplete-item';
+      // If only one command starts with this prefix, show it directly
+      const cmdsWithPrefix = COMMANDS.filter(c => c.text.split(/\s+/)[0] === prefix);
+      if (cmdsWithPrefix.length === 1) {
+        item.textContent = cmdsWithPrefix[0].text;
+        const hint = document.createElement('span');
+        hint.className = 'autocomplete-hint';
+        hint.textContent = cmdsWithPrefix[0].hint;
+        item.appendChild(hint);
+        item.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          commandInput.value = cmdsWithPrefix[0].text;
+          autocompleteEl.classList.remove('visible');
+          executeCommand(cmdsWithPrefix[0].text);
+        });
+      } else {
+        item.textContent = prefix + '…';
+        if (PREFIX_HINTS[prefix]) {
+          const hint = document.createElement('span');
+          hint.className = 'autocomplete-hint';
+          hint.textContent = PREFIX_HINTS[prefix];
+          item.appendChild(hint);
+        }
+        item.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          commandInput.value = prefix + ' ';
+          updateAutocomplete();
+        });
+      }
+      autocompleteEl.appendChild(item);
+    }
+    autocompleteEl.classList.add('visible');
+    return;
+  }
+
+  const matches = COMMANDS.filter(c => c.text.startsWith(val) || c.text.includes(val));
 
   if (matches.length === 0 || (matches.length === 1 && matches[0].text === val)) {
     autocompleteEl.classList.remove('visible');
