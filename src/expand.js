@@ -188,7 +188,7 @@ function expandNode(node, env) {
           const e = expandNode(child, env);
           if (e !== null) expanded.push(e);
         }
-        return [type, ...expanded];
+        return copyBlockId([type, ...expanded], node);
       }
 
       // Look up the expression context for this node type
@@ -201,6 +201,14 @@ function expandNode(node, env) {
       return node.map(item => Array.isArray(item) ? expandNode(item, env) : item);
     }
   }
+}
+
+// ---- Helpers ----
+
+// Copy _blockId annotation from source AST node to result (if present)
+function copyBlockId(result, source) {
+  if (source._blockId) result._blockId = source._blockId;
+  return result;
 }
 
 // ---- Context-driven expansion ----
@@ -227,11 +235,11 @@ function expandWithContext(node, env, ctx) {
   if (ctx.childrenStart > 0) {
     const children = node.slice(ctx.childrenStart);
     const expanded = children.map(c => expandNode(c, env)).filter(c => c !== null);
-    return [type, expandedParams, ...expanded];
+    return copyBlockId([type, expandedParams, ...expanded], node);
   }
 
   // Leaf node (no children)
-  return [type, expandedParams];
+  return copyBlockId([type, expandedParams], node);
 }
 
 // ---- Stir expansion ----

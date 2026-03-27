@@ -44,8 +44,8 @@ function rawToGeometry(raw) {
   return geo;
 }
 
-// Build a Three.js Group from worker results
-function buildGroup(solid, anti) {
+// Build a Three.js Group from worker results, optionally stamping provenance
+function buildGroup(solid, anti, provenanceField) {
   const group = new THREE.Group();
 
   const solidGeo = rawToGeometry(solid);
@@ -54,7 +54,16 @@ function buildGroup(solid, anti) {
       vertexColors: true,
       side: THREE.DoubleSide
     });
-    group.add(new THREE.Mesh(solidGeo, mat));
+    const mesh = new THREE.Mesh(solidGeo, mat);
+    if (provenanceField) {
+      const pos = solidGeo.getAttribute('position');
+      const blockIds = new Array(pos.count);
+      for (let i = 0; i < pos.count; i++) {
+        blockIds[i] = provenanceField(pos.getX(i), pos.getY(i), pos.getZ(i));
+      }
+      mesh.userData.vertexBlockIds = blockIds;
+    }
+    group.add(mesh);
   }
 
   const antiGeo = rawToGeometry(anti);
@@ -72,7 +81,7 @@ function buildGroup(solid, anti) {
 // so the caller can display which resolutions are being computed.
 //
 // Returns a cancel function.
-export function meshProgressive(ast, targetDepth, useOctree, onResult, onStatus) {
+export function meshProgressive(ast, targetDepth, useOctree, onResult, onStatus, provenanceField) {
   const generation = ++currentGeneration;
 
   // Choose refinement levels: preview → every 2 depths → target
@@ -130,7 +139,7 @@ export function meshProgressive(ast, targetDepth, useOctree, onResult, onStatus)
       if (data.depth <= bestDepthSoFar) return;
       bestDepthSoFar = data.depth;
 
-      const group = buildGroup(data.solid, data.anti);
+      const group = buildGroup(data.solid, data.anti, provenanceField);
       const isFinal = (data.depth === targetDepth) || (activeWorkers === 0);
 
       onResult(group, data.depth, {

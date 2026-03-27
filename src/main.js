@@ -1,7 +1,7 @@
 import { createViewport } from './viewport.js';
-import { initPalette, initWorkspace, renderWorkspace, subscribe, getRootBlocks, addBlockToRoot, addBlockAsChild, updateParam, replaceFromAST } from './blocks.js';
+import { initPalette, initWorkspace, renderWorkspace, subscribe, getRootBlocks, addBlockToRoot, addBlockAsChild, updateParam, replaceFromAST, highlightBlock } from './blocks.js';
 import { generateAST, formatSExpr } from './codegen.js';
-import { evaluate, getResolution, setResolution, getUseOctree, setUseOctree, getAntiCheckerSize, setAntiCheckerSize, cycleAntiWireframeMode, needsFieldEval } from './evaluator.js';
+import { evaluate, getResolution, setResolution, getUseOctree, setUseOctree, getAntiCheckerSize, setAntiCheckerSize, cycleAntiWireframeMode, needsFieldEval, buildProvenanceField } from './evaluator.js';
 import { meshProgressive } from './progressive.js';
 import { resToDepth } from './octree-core.js';
 import { parseSExpr } from './parser.js';
@@ -15,6 +15,11 @@ const viewport = createViewport(document.getElementById('viewport-panel'));
 // Boot block editor
 initPalette(document.getElementById('palette'));
 initWorkspace(document.getElementById('workspace'));
+
+// Tap 3D view → highlight corresponding block
+viewport.onTap((blockId) => {
+  highlightBlock(blockId);
+});
 
 // Named default models (S-expr strings)
 const DEFAULT_MODELS = {
@@ -604,6 +609,7 @@ function runPipeline() {
     pipelinePending = true;
 
     const targetDepth = resToDepth(getResolution());
+    const provField = buildProvenanceField(ast);
     cancelProgressive = meshProgressive(ast, targetDepth, getUseOctree(), (group, depth, stats, isFinal) => {
       viewport.setContent(group);
       if (stats) {
@@ -621,7 +627,7 @@ function runPipeline() {
         pipelinePending = false;
         cancelProgressive = null;
       }
-    }, updateMeshingStatus);
+    }, updateMeshingStatus, provField);
   } else {
     // Simple model — sync eval (instant)
     if (pipelinePending) return;
@@ -663,6 +669,7 @@ codeOutput.addEventListener('input', () => {
         runGPUPipeline(ast);
       } else if (useProgressiveMode && needsFieldEval(ast)) {
         const targetDepth = resToDepth(getResolution());
+        const provField = buildProvenanceField(ast);
         meshingIndicator.classList.add('visible');
         cancelProgressive = meshProgressive(ast, targetDepth, getUseOctree(), (group, depth, stats, isFinal) => {
           viewport.setContent(group);
@@ -678,7 +685,7 @@ codeOutput.addEventListener('input', () => {
             stopMeshingTimer();
             cancelProgressive = null;
           }
-        }, updateMeshingStatus);
+        }, updateMeshingStatus, provField);
       } else {
         const { group, stats } = evaluate(ast);
         viewport.setContent(group);
