@@ -68,7 +68,11 @@ function buildGroup(solid, anti, provenanceField) {
 
   const antiGeo = rawToGeometry(anti);
   if (antiGeo && antiGeo.index && antiGeo.index.count > 0) {
-    addAntiMesh(group, antiGeo);
+    // Wrap provenanceField as a csgField-shaped function for stampProvenance
+    const csgField = provenanceField
+      ? (x, y, z) => ({ blockId: provenanceField(x, y, z) })
+      : null;
+    addAntiMesh(group, antiGeo, csgField);
   }
 
   return group;

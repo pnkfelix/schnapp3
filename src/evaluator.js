@@ -13,9 +13,11 @@ import { buildOctree, meshOctreeLeaves, resToDepth } from './octree-mesh.js';
 // The checkerboard discards alternating 3D cells so parts of the surface
 // are truly invisible. The wireframe shows the full silhouette so the
 // shape remains legible even with half the surface missing.
-export function addAntiMesh(group, geo) {
+export function addAntiMesh(group, geo, csgField) {
   // Checkerboard surface
-  group.add(new THREE.Mesh(geo, _makeAntiCheckerMat()));
+  const antiMesh = new THREE.Mesh(geo, _makeAntiCheckerMat());
+  if (csgField) stampProvenance(antiMesh, csgField);
+  group.add(antiMesh);
   // Wireframe overlay (mode-dependent)
   const wireMat = new THREE.MeshBasicMaterial({
     color: 0x993333,
@@ -385,7 +387,7 @@ function meshCSGNode(node) {
     if (evalStats) evalStats.voxels += (res + 1) ** 3;
     const antiGeo = meshField(antiField, bounds, res);
     if (antiGeo.index && antiGeo.index.count > 0) {
-      addAntiMesh(group, antiGeo);
+      addAntiMesh(group, antiGeo, csgField);
     }
 
     // Record stats
@@ -420,7 +422,7 @@ function meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorF
 
   const antiGeo = meshField(antiField, bounds, res);
   if (antiGeo.index && antiGeo.index.count > 0) {
-    addAntiMesh(group, antiGeo);
+    addAntiMesh(group, antiGeo, csgField);
   }
 
   return group;
