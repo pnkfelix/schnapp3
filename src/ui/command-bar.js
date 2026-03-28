@@ -184,6 +184,17 @@ function executeCommand(text) {
     commandInput.blur();
     return;
   }
+  if (parts[0] === 'focus') {
+    if (parts[1] === 'reset') {
+      ctx.viewport.resetFocus();
+    } else {
+      const t = ctx.viewport.getFocusTarget();
+      console.log(`focus target: (${t.x.toFixed(1)}, ${t.y.toFixed(1)}, ${t.z.toFixed(1)})`);
+    }
+    commandInput.value = '';
+    commandInput.blur();
+    return;
+  }
   if (parts[0] === 'reset') {
     ctx.loadDefaultModel(parts[1]);
     commandInput.value = '';
@@ -255,6 +266,8 @@ export function initCommandBar(modelNames, callbacks) {
     { text: 'visual anti via checker 5', hint: 'anti-solid checker size: large' },
     { text: 'visual anti via checker 10', hint: 'anti-solid checker size: very large' },
     { text: 'visual anti via wireframe', hint: 'cycle: off → full → edges' },
+    { text: 'focus reset', hint: 'reset camera focus to origin' },
+    { text: 'focus', hint: 'show current camera focus point' },
     ...modelNames.map(name => ({
       text: `reset ${name}`, hint: `load ${name} model`
     })),

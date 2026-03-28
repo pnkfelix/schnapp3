@@ -360,6 +360,7 @@ function loadDefaultModel(name) {
 
 // Initialize command bar with callbacks into main module
 initCommandBar(Object.keys(DEFAULT_MODELS), {
+  viewport,
   runPipeline,
   toggleGPUMode,
   runBench,
