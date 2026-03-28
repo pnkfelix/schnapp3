@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { meshField } from './surface-nets.js';
 import { evalCSGFieldInterval } from './interval-eval.js';
 import { buildOctree, meshOctreeLeaves, resToDepth } from './octree-mesh.js';
+import { nodeChildren, COLOR_MAP, DEFAULT_COLOR, UNSET_COLOR, hexToRgb, DEFAULT_RGB, UNSET_RGB, EMPTY } from './eval/ast-utils.js';
+import { estimateBounds, mergeBounds } from './eval/bounds.js';
 
 // S-expression AST → Three.js geometry
 // Consumes the structured AST from codegen.js, knows nothing about blocks.
@@ -88,36 +90,6 @@ function _makeAntiCheckerMat() {
 //   complement(A)   = (polarity,        -distance)       — flip geometry
 //   fuse(A, B, k)   = (sgn(p_A + p_B),  smin(d_A, d_B, k))
 
-const COLOR_MAP = {
-  unset:  0xaaaaaa,
-  gray:   0xaaaaaa,
-  red:    0xff4444,
-  blue:   0x4488ff,
-  green:  0x44cc44,
-  yellow: 0xffcc00,
-  orange: 0xff8800
-};
-
-const DEFAULT_COLOR = 'gray';
-const UNSET_COLOR = 'unset';
-
-function hexToRgb(hex) {
-  return [(hex >> 16 & 0xff) / 255, (hex >> 8 & 0xff) / 255, (hex & 0xff) / 255];
-}
-
-const DEFAULT_RGB = hexToRgb(COLOR_MAP[DEFAULT_COLOR]);
-// Unset renders as gray but yields to any explicit color in CSG operations
-const UNSET_RGB = DEFAULT_RGB;
-
-// Extract child AST nodes from a node, skipping the params object if present.
-// Bare containers (union, intersect, anti, complement) may or may not have a
-// params object at node[1] — tagged ones do, plain ones don't.
-function nodeChildren(node) {
-  if (node[1] && typeof node[1] === 'object' && !Array.isArray(node[1])) {
-    return node.slice(2);
-  }
-  return node.slice(1);
-}
 
 // Does this AST node (or any subtree) require CSG field evaluation?
 // If so, we must mesh the entire subtree via surface-nets rather than
@@ -460,8 +432,6 @@ function meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorF
 
 // ---- Three-component CSG field evaluation ----
 // Returns (x, y, z) => { polarity: -1|0|+1, distance: number, color: [r,g,b] }
-
-const EMPTY = { polarity: 0, distance: 1e10, color: UNSET_COLOR, blockId: null };
 
 function evalCSGField(node) {
   if (!node || !Array.isArray(node)) return () => EMPTY;
@@ -1089,212 +1059,5 @@ function softmin(fields, k) {
   };
 }
 
-// ---- Bounding box estimation from AST ----
-
-export function estimateBounds(node, offset = [0, 0, 0]) {
-  const type = node[0];
-  const pad = 5;
-
-  switch (type) {
-    case 'sphere': {
-      const r = (node[1].radius || 15) + pad;
-      return {
-        min: [offset[0] - r, offset[1] - r, offset[2] - r],
-        max: [offset[0] + r, offset[1] + r, offset[2] + r]
-      };
-    }
-    case 'cube': {
-      const h = (node[1].size || 20) / 2 + pad;
-      return {
-        min: [offset[0] - h, offset[1] - h, offset[2] - h],
-        max: [offset[0] + h, offset[1] + h, offset[2] + h]
-      };
-    }
-    case 'cylinder': {
-      const r = (node[1].radius || 10) + pad;
-      const h = (node[1].height || 30) / 2 + pad;
-      return {
-        min: [offset[0] - r, offset[1] - h, offset[2] - r],
-        max: [offset[0] + r, offset[1] + h, offset[2] + r]
-      };
-    }
-    case 'translate': {
-      const p = node[1];
-      const newOff = [offset[0] + (p.x||0), offset[1] + (p.y||0), offset[2] + (p.z||0)];
-      const children = node.slice(2);
-      return mergeBounds(children.map(c => estimateBounds(c, newOff)));
-    }
-    case 'paint':
-    case 'recolor': {
-      const children = node.slice(2);
-      return mergeBounds(children.map(c => estimateBounds(c, offset)));
-    }
-    case 'anti':
-    case 'complement': {
-      return mergeBounds(nodeChildren(node).map(c => estimateBounds(c, offset)));
-    }
-    case 'mirror': {
-      // Mirror doubles the child across an axis — expand bounds to be symmetric
-      const children = node.slice(2);
-      const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
-      const axis = node[1].axis || 'x';
-      const ai = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
-      const extent = Math.max(Math.abs(childBounds.min[ai]), Math.abs(childBounds.max[ai]));
-      childBounds.min[ai] = offset[ai] - extent;
-      childBounds.max[ai] = offset[ai] + extent;
-      return childBounds;
-    }
-    case 'rotate': {
-      // Rotation in the plane perpendicular to the axis — use max radial extent
-      const children = node.slice(2);
-      const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
-      const axis = node[1].axis || 'y';
-      const [a0, a1] = axis === 'x' ? [1, 2] : axis === 'y' ? [0, 2] : [0, 1];
-      const r = Math.max(
-        Math.abs(childBounds.min[a0]), Math.abs(childBounds.max[a0]),
-        Math.abs(childBounds.min[a1]), Math.abs(childBounds.max[a1])
-      );
-      childBounds.min[a0] = offset[a0] - r;
-      childBounds.max[a0] = offset[a0] + r;
-      childBounds.min[a1] = offset[a1] - r;
-      childBounds.max[a1] = offset[a1] + r;
-      return childBounds;
-    }
-    case 'twist': {
-      // Twist can rotate the cross-section — expand to contain the rotated extent
-      const children = node.slice(2);
-      const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
-      // Conservative: use the max radial extent for both cross-section axes
-      const axis = node[1].axis || 'y';
-      const [a0, a1] = axis === 'x' ? [1, 2] : axis === 'y' ? [0, 2] : [0, 1];
-      const r = Math.max(
-        Math.abs(childBounds.min[a0]), Math.abs(childBounds.max[a0]),
-        Math.abs(childBounds.min[a1]), Math.abs(childBounds.max[a1])
-      );
-      childBounds.min[a0] = offset[a0] - r;
-      childBounds.max[a0] = offset[a0] + r;
-      childBounds.min[a1] = offset[a1] - r;
-      childBounds.max[a1] = offset[a1] + r;
-      return childBounds;
-    }
-    case 'radial': {
-      // Radial repeat — expand to full circle around the axis
-      const children = node.slice(2);
-      const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
-      const axis = node[1].axis || 'y';
-      const [a0, a1] = axis === 'x' ? [1, 2] : axis === 'y' ? [0, 2] : [0, 1];
-      const r = Math.max(
-        Math.abs(childBounds.min[a0]), Math.abs(childBounds.max[a0]),
-        Math.abs(childBounds.min[a1]), Math.abs(childBounds.max[a1])
-      );
-      childBounds.min[a0] = offset[a0] - r;
-      childBounds.max[a0] = offset[a0] + r;
-      childBounds.min[a1] = offset[a1] - r;
-      childBounds.max[a1] = offset[a1] + r;
-      return childBounds;
-    }
-    case 'stretch': {
-      // Stretch scales each axis — multiply child bounds by scale factors
-      const sx = node[1].sx != null ? node[1].sx : 1;
-      const sy = node[1].sy != null ? node[1].sy : 1;
-      const sz = node[1].sz != null ? node[1].sz : 1;
-      const children = node.slice(2);
-      const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
-      const scales = [sx, sy, sz];
-      for (let i = 0; i < 3; i++) {
-        const cen = offset[i];
-        childBounds.min[i] = cen + (childBounds.min[i] - cen) * scales[i];
-        childBounds.max[i] = cen + (childBounds.max[i] - cen) * scales[i];
-        if (childBounds.min[i] > childBounds.max[i]) {
-          [childBounds.min[i], childBounds.max[i]] = [childBounds.max[i], childBounds.min[i]];
-        }
-      }
-      return childBounds;
-    }
-    case 'tile': {
-      // Tile repeats along one axis — expand that axis to a large extent
-      const axis = node[1].axis || 'x';
-      const children = node.slice(2);
-      const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
-      const ai = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
-      // Show roughly 5 tiles in each direction
-      const spacing = node[1].spacing || 30;
-      const extent = spacing * 5;
-      childBounds.min[ai] = offset[ai] - extent;
-      childBounds.max[ai] = offset[ai] + extent;
-      return childBounds;
-    }
-    case 'bend': {
-      // Bend curves space — conservative expansion
-      const children = node.slice(2);
-      const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
-      // Bending can move geometry significantly; expand all axes by the child's max extent
-      const maxExtent = Math.max(
-        ...childBounds.max.map((v, i) => Math.abs(v - offset[i])),
-        ...childBounds.min.map((v, i) => Math.abs(v - offset[i]))
-      );
-      for (let i = 0; i < 3; i++) {
-        childBounds.min[i] = offset[i] - maxExtent;
-        childBounds.max[i] = offset[i] + maxExtent;
-      }
-      return childBounds;
-    }
-    case 'taper': {
-      // Taper scales cross-section — conservative: expand cross-section axes
-      const axis = node[1].axis || 'y';
-      const rate = node[1].rate != null ? node[1].rate : 0.02;
-      const children = node.slice(2);
-      const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
-      const ai = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
-      const [a0, a1] = axis === 'x' ? [1, 2] : axis === 'y' ? [0, 2] : [0, 1];
-      // Find max scale factor across the along-axis extent
-      const maxAlong = Math.max(
-        Math.abs(childBounds.min[ai] - offset[ai]),
-        Math.abs(childBounds.max[ai] - offset[ai])
-      );
-      const maxScale = Math.max(1, 1 + Math.abs(rate) * maxAlong);
-      for (const a of [a0, a1]) {
-        const ext = Math.max(
-          Math.abs(childBounds.min[a] - offset[a]),
-          Math.abs(childBounds.max[a] - offset[a])
-        ) * maxScale;
-        childBounds.min[a] = offset[a] - ext;
-        childBounds.max[a] = offset[a] + ext;
-      }
-      return childBounds;
-    }
-    case 'union':
-    case 'intersect':
-    case 'fuse': {
-      const start = type === 'fuse' ? 2 : 1;
-      const children = node.slice(start);
-      const merged = mergeBounds(children.map(c => estimateBounds(c, offset)));
-      if (type === 'fuse') {
-        const k = (node[1].k || 5);
-        merged.min = merged.min.map(v => v - k);
-        merged.max = merged.max.map(v => v + k);
-      }
-      return merged;
-    }
-    default:
-      return {
-        min: [offset[0] - 20, offset[1] - 20, offset[2] - 20],
-        max: [offset[0] + 20, offset[1] + 20, offset[2] + 20]
-      };
-  }
-}
-
-function mergeBounds(boundsList) {
-  if (boundsList.length === 0) {
-    return { min: [-20, -20, -20], max: [20, 20, 20] };
-  }
-  const min = [...boundsList[0].min];
-  const max = [...boundsList[0].max];
-  for (let i = 1; i < boundsList.length; i++) {
-    for (let j = 0; j < 3; j++) {
-      min[j] = Math.min(min[j], boundsList[i].min[j]);
-      max[j] = Math.max(max[j], boundsList[i].max[j]);
-    }
-  }
-  return { min, max };
-}
+// estimateBounds and mergeBounds imported from ./eval/bounds.js
+export { estimateBounds } from './eval/bounds.js';

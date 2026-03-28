@@ -4,27 +4,12 @@
 //
 // evalCSGField(astNode) => (x, y, z) => { polarity, distance, color }
 
-const COLOR_MAP = {
-  unset: 0xaaaaaa, gray: 0xaaaaaa, red: 0xff4444, blue: 0x4488ff,
-  green: 0x44cc44, yellow: 0xffcc00, orange: 0xff8800
-};
-const DEFAULT_COLOR = 'gray';
-const UNSET_COLOR = 'unset';
-
-function hexToRgb(hex) {
-  return [(hex >> 16 & 0xff) / 255, (hex >> 8 & 0xff) / 255, (hex & 0xff) / 255];
-}
-const DEFAULT_RGB = hexToRgb(COLOR_MAP[DEFAULT_COLOR]);
-const UNSET_RGB = DEFAULT_RGB;
-const EMPTY = { polarity: 0, distance: 1e10, color: UNSET_COLOR };
+import { nodeChildren, COLOR_MAP, DEFAULT_COLOR, UNSET_COLOR, hexToRgb, DEFAULT_RGB, UNSET_RGB, EMPTY } from './eval/ast-utils.js';
+import { estimateBounds, mergeBounds } from './eval/bounds.js';
 
 export { COLOR_MAP, DEFAULT_COLOR, UNSET_COLOR, UNSET_RGB, EMPTY };
 export { hexToRgb };
-
-function nodeChildren(node) {
-  if (node[1] && typeof node[1] === 'object' && !Array.isArray(node[1])) return node.slice(2);
-  return node.slice(1);
-}
+export { estimateBounds };
 
 export function evalCSGField(node) {
   if (!node || !Array.isArray(node)) return () => EMPTY;
@@ -339,98 +324,3 @@ function csgIntersect(results) {
   return { polarity: pProd, distance: best.distance, color };
 }
 
-export function estimateBounds(node, offset = [0, 0, 0]) {
-  if (!node || !Array.isArray(node)) return { min: [offset[0]-20,offset[1]-20,offset[2]-20], max: [offset[0]+20,offset[1]+20,offset[2]+20] };
-  const type = node[0];
-  const pad = 5;
-  switch (type) {
-    case 'sphere': { const r = (node[1].radius || 15) + pad; return { min: [offset[0]-r,offset[1]-r,offset[2]-r], max: [offset[0]+r,offset[1]+r,offset[2]+r] }; }
-    case 'cube': { const h = (node[1].size || 20) / 2 + pad; return { min: [offset[0]-h,offset[1]-h,offset[2]-h], max: [offset[0]+h,offset[1]+h,offset[2]+h] }; }
-    case 'cylinder': { const r = (node[1].radius || 10) + pad; const h = (node[1].height || 30) / 2 + pad; return { min: [offset[0]-r,offset[1]-h,offset[2]-r], max: [offset[0]+r,offset[1]+h,offset[2]+r] }; }
-    case 'translate': { const p = node[1]; const no = [offset[0]+(p.x||0), offset[1]+(p.y||0), offset[2]+(p.z||0)]; return mergeBounds(node.slice(2).map(c => estimateBounds(c, no))); }
-    case 'paint': case 'recolor': return mergeBounds(node.slice(2).map(c => estimateBounds(c, offset)));
-    case 'anti': case 'complement': return mergeBounds(nodeChildren(node).map(c => estimateBounds(c, offset)));
-    case 'mirror': {
-      const cb = mergeBounds(node.slice(2).map(c => estimateBounds(c, offset)));
-      const ai = (node[1].axis || 'x') === 'x' ? 0 : (node[1].axis || 'x') === 'y' ? 1 : 2;
-      const ext = Math.max(Math.abs(cb.min[ai]), Math.abs(cb.max[ai]));
-      cb.min[ai] = offset[ai] - ext; cb.max[ai] = offset[ai] + ext;
-      return cb;
-    }
-    case 'twist': case 'radial': {
-      const cb = mergeBounds(node.slice(2).map(c => estimateBounds(c, offset)));
-      const axis = node[1].axis || 'y';
-      const [a0, a1] = axis === 'x' ? [1,2] : axis === 'y' ? [0,2] : [0,1];
-      const r = Math.max(Math.abs(cb.min[a0]),Math.abs(cb.max[a0]),Math.abs(cb.min[a1]),Math.abs(cb.max[a1]));
-      cb.min[a0] = offset[a0]-r; cb.max[a0] = offset[a0]+r;
-      cb.min[a1] = offset[a1]-r; cb.max[a1] = offset[a1]+r;
-      return cb;
-    }
-    case 'stretch': {
-      const sx = node[1].sx != null ? node[1].sx : 1, sy = node[1].sy != null ? node[1].sy : 1, sz = node[1].sz != null ? node[1].sz : 1;
-      const cb = mergeBounds(node.slice(2).map(c => estimateBounds(c, offset)));
-      const scales = [sx, sy, sz];
-      for (let i = 0; i < 3; i++) {
-        const cen = offset[i];
-        cb.min[i] = cen + (cb.min[i] - cen) * scales[i];
-        cb.max[i] = cen + (cb.max[i] - cen) * scales[i];
-        if (cb.min[i] > cb.max[i]) [cb.min[i], cb.max[i]] = [cb.max[i], cb.min[i]];
-      }
-      return cb;
-    }
-    case 'tile': {
-      const cb = mergeBounds(node.slice(2).map(c => estimateBounds(c, offset)));
-      const ai = (node[1].axis||'x') === 'x' ? 0 : (node[1].axis||'x') === 'y' ? 1 : 2;
-      const ext = (node[1].spacing || 30) * 5;
-      cb.min[ai] = offset[ai] - ext; cb.max[ai] = offset[ai] + ext;
-      return cb;
-    }
-    case 'rotate': {
-      const axis = node[1].axis || 'y';
-      const cb = mergeBounds(node.slice(2).map(c => estimateBounds(c, offset)));
-      const [a0, a1] = axis === 'x' ? [1, 2] : axis === 'y' ? [0, 2] : [0, 1];
-      const r = Math.max(
-        Math.abs(cb.min[a0]), Math.abs(cb.max[a0]),
-        Math.abs(cb.min[a1]), Math.abs(cb.max[a1])
-      );
-      cb.min[a0] = offset[a0] - r; cb.max[a0] = offset[a0] + r;
-      cb.min[a1] = offset[a1] - r; cb.max[a1] = offset[a1] + r;
-      return cb;
-    }
-    case 'bend': {
-      const cb = mergeBounds(node.slice(2).map(c => estimateBounds(c, offset)));
-      const me = Math.max(...cb.max.map((v,i) => Math.abs(v - offset[i])), ...cb.min.map((v,i) => Math.abs(v - offset[i])));
-      for (let i = 0; i < 3; i++) { cb.min[i] = offset[i] - me; cb.max[i] = offset[i] + me; }
-      return cb;
-    }
-    case 'taper': {
-      const axis = node[1].axis || 'y'; const rate = node[1].rate != null ? node[1].rate : 0.02;
-      const cb = mergeBounds(node.slice(2).map(c => estimateBounds(c, offset)));
-      const ai = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
-      const [a0, a1] = axis === 'x' ? [1,2] : axis === 'y' ? [0,2] : [0,1];
-      const maxAlong = Math.max(Math.abs(cb.min[ai]-offset[ai]), Math.abs(cb.max[ai]-offset[ai]));
-      const maxScale = Math.max(1, 1 + Math.abs(rate) * maxAlong);
-      for (const a of [a0, a1]) {
-        const ext = Math.max(Math.abs(cb.min[a]-offset[a]), Math.abs(cb.max[a]-offset[a])) * maxScale;
-        cb.min[a] = offset[a] - ext; cb.max[a] = offset[a] + ext;
-      }
-      return cb;
-    }
-    case 'union': case 'intersect': case 'fuse': {
-      const children = (type === 'fuse') ? node.slice(2) : nodeChildren(node);
-      const merged = mergeBounds(children.map(c => estimateBounds(c, offset)));
-      if (type === 'fuse') { const k = node[1].k || 5; merged.min = merged.min.map(v => v - k); merged.max = merged.max.map(v => v + k); }
-      return merged;
-    }
-    default: return { min: [offset[0]-20,offset[1]-20,offset[2]-20], max: [offset[0]+20,offset[1]+20,offset[2]+20] };
-  }
-}
-
-function mergeBounds(list) {
-  if (list.length === 0) return { min: [-20,-20,-20], max: [20,20,20] };
-  const min = [...list[0].min], max = [...list[0].max];
-  for (let i = 1; i < list.length; i++) {
-    for (let j = 0; j < 3; j++) { min[j] = Math.min(min[j], list[i].min[j]); max[j] = Math.max(max[j], list[i].max[j]); }
-  }
-  return { min, max };
-}
