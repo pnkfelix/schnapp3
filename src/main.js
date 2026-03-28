@@ -1,8 +1,13 @@
 import { createViewport } from './viewport.js';
-import { initPalette, initWorkspace, renderWorkspace, subscribe, getRootBlocks, addBlockToRoot, addBlockAsChild, updateParam, replaceFromAST } from './blocks.js';
+import { initPalette, initWorkspace, renderWorkspace, subscribe, getRootBlocks, addBlockToRoot, addBlockAsChild, updateParam, replaceFromAST, highlightBlock } from './blocks.js';
 import { generateAST, formatSExpr } from './codegen.js';
-import { evaluate, getResolution, setResolution } from './evaluator.js';
+import { evaluate, getResolution, setResolution, getUseOctree, setUseOctree, getAntiCheckerSize, setAntiCheckerSize, cycleAntiWireframeMode, needsFieldEval, buildProvenanceField } from './evaluator.js';
+import { meshProgressive } from './progressive.js';
+import { resToDepth } from './octree-core.js';
 import { parseSExpr } from './parser.js';
+import { expandAST } from './expand.js';
+import { initGPU, gpuEvaluate, gpuEvaluateOctree, gpuEvaluateOctreeProgressive, isGPUAvailable } from './gpu-engine.js';
+import { runBenchmark } from './benchmark.js';
 
 // Boot viewport
 const viewport = createViewport(document.getElementById('viewport-panel'));
@@ -10,6 +15,11 @@ const viewport = createViewport(document.getElementById('viewport-panel'));
 // Boot block editor
 initPalette(document.getElementById('palette'));
 initWorkspace(document.getElementById('workspace'));
+
+// Tap 3D view → highlight corresponding block
+viewport.onTap((blockId) => {
+  highlightBlock(blockId);
+});
 
 // Named default models (S-expr strings)
 const DEFAULT_MODELS = {
@@ -24,7 +34,7 @@ const DEFAULT_MODELS = {
     (union
       (paint :color "green"
         (fuse :k 5
-          (translate 20 0 0
+          (translate 18 0 0
             (cube 10))
           (sphere 15)))
       (anti
@@ -69,9 +79,104 @@ const DEFAULT_MODELS = {
     (taper :axis "y" :rate 0.03
       (paint :color "orange"
         (cylinder 10 40)))))`,
+
+  pl: `(let "eye"
+  (enzyme :tags ("radius")
+    (union
+      (paint :color "orange"
+        (sphere (var "radius")))
+      (translate 0 0 2
+        (sphere 1))))
+  (union
+    (let "body"
+      (paint :color "green"
+        (fuse :k 5
+          (sphere 12)
+          (translate 15 0 0
+            (cube 8))))
+      (union
+        (var "body")
+        (translate 5 12 5
+          (stir
+            (var "eye")
+            (tag "radius" (scalar 3))))
+        (translate 5 12 -5
+          (stir
+            (var "eye")
+            (tag "radius" (scalar 3))))))
+    (translate 50 0 0
+      (grow "acc" :count 6
+        (cube 8)
+        (union
+          (translate 12 4 0 (var "acc"))
+          (paint :color "blue"
+            (sphere 3)))))))`,
+
+  grow: `(grow "acc" :count 8
+  (paint :color "orange"
+    (cube 6))
+  (union
+    (translate 10 5 0 (var "acc"))
+    (paint :color "blue"
+      (sphere 4))))`,
+  fractal: `(fractal :count 3
+  (paint :color "green"
+    (cube 10))
+  (enzyme :tags ("step")
+    (enzyme :tags ("shape")
+      (union
+        (var "shape")
+        (translate 12 12 0
+          (stretch :sx 0.6 :sy 0.6 :sz 0.6
+            (stir
+              (var "step")
+              (tag "shape"
+                (paint :color "orange"
+                  (var "shape"))))))
+        (translate -12 12 0
+          (stretch :sx 0.6 :sy 0.6 :sz 0.6
+            (stir
+              (var "step")
+              (tag "shape"
+                (paint :color "blue"
+                  (var "shape"))))))))))`,
+  menger: `(stir
+  (enzyme :tags ("s" "d" "n")
+    (fractal :count 2
+      (cube 30)
+      (enzyme :tags ("step")
+        (enzyme :tags ("shape")
+              (union
+                (translate (var "n") (var "n") (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate       0  (var "n") (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "d") (var "n") (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "n")       0  (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "d")       0  (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "n") (var "d") (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate       0  (var "d") (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "d") (var "d") (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "n") (var "n")       0  (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "d") (var "n")       0  (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "n") (var "d")       0  (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "d") (var "d")       0  (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "n") (var "n") (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate       0  (var "n") (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "d") (var "n") (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "n")       0  (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "d")       0  (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "n") (var "d") (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate       0  (var "d") (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
+                (translate (var "d") (var "d") (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape"))))))))))
+  (tag "s" (scalar 0.333))
+  (tag "d" (scalar 10))
+  (tag "n" (scalar -10)))`,
 };
 
 const DEFAULT_MODEL_NAME = 'lizard';
+
+// GPU mode state
+let useGPUMode = false;
+let gpuInitialized = false;
 
 // ---- Command bar ----
 
@@ -92,6 +197,14 @@ function showPanels(names) {
   }
 }
 
+const PREFIX_HINTS = {
+  show: 'choose visible panels',
+  resolution: 'set mesh resolution',
+  reset: 'load a model',
+  bench: 'run performance benchmark',
+  visual: 'anti-solid visualization',
+};
+
 const COMMANDS = [
   { text: 'show blocks 3d', hint: 'blocks + 3D preview' },
   { text: 'show blocks code', hint: 'blocks + code preview' },
@@ -103,8 +216,21 @@ const COMMANDS = [
   { text: 'resolution 48', hint: 'default (fast)' },
   { text: 'resolution 72', hint: 'medium' },
   { text: 'resolution 96', hint: 'fine' },
-  { text: 'resolution 128', hint: 'very fine (slow)' },
+  { text: 'resolution 128', hint: 'very fine' },
+  { text: 'resolution 256', hint: 'ultra (octree recommended)' },
+  { text: 'resolution 512', hint: 'extreme (octree only)' },
   { text: 'reset', hint: 'restore default model' },
+  { text: 'octree', hint: 'toggle octree acceleration on/off' },
+  { text: 'progressive', hint: 'toggle progressive refinement on/off' },
+  { text: 'gpu', hint: 'toggle WebGPU SDF evaluation on/off' },
+  { text: 'bench', hint: 'run GPU vs CPU performance benchmark' },
+  { text: 'bench 48', hint: 'benchmark at resolution 48 only' },
+  { text: 'bench 96', hint: 'benchmark at resolution 96 only' },
+  { text: 'visual anti via checker 1', hint: 'anti-solid checker size: tiny' },
+  { text: 'visual anti via checker 3', hint: 'anti-solid checker size: default' },
+  { text: 'visual anti via checker 5', hint: 'anti-solid checker size: large' },
+  { text: 'visual anti via checker 10', hint: 'anti-solid checker size: very large' },
+  { text: 'visual anti via wireframe', hint: 'cycle: off → full → edges' },
   ...Object.keys(DEFAULT_MODELS).map(name => ({
     text: `reset ${name}`, hint: `load ${name} model`
   })),
@@ -116,9 +242,58 @@ let selectedIndex = -1;
 
 function updateAutocomplete() {
   const val = commandInput.value.trim().toLowerCase();
-  const matches = val.length === 0
-    ? COMMANDS
-    : COMMANDS.filter(c => c.text.startsWith(val) || c.text.includes(val));
+
+  // When input is empty, show unique first-word prefixes instead of all commands
+  if (val.length === 0) {
+    const prefixes = [];
+    const seen = new Set();
+    for (const c of COMMANDS) {
+      const first = c.text.split(/\s+/)[0];
+      if (!seen.has(first)) {
+        seen.add(first);
+        prefixes.push(first);
+      }
+    }
+    selectedIndex = -1;
+    autocompleteEl.innerHTML = '';
+    for (const prefix of prefixes) {
+      const item = document.createElement('div');
+      item.className = 'autocomplete-item';
+      // If only one command starts with this prefix, show it directly
+      const cmdsWithPrefix = COMMANDS.filter(c => c.text.split(/\s+/)[0] === prefix);
+      if (cmdsWithPrefix.length === 1) {
+        item.textContent = cmdsWithPrefix[0].text;
+        const hint = document.createElement('span');
+        hint.className = 'autocomplete-hint';
+        hint.textContent = cmdsWithPrefix[0].hint;
+        item.appendChild(hint);
+        item.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          commandInput.value = cmdsWithPrefix[0].text;
+          autocompleteEl.classList.remove('visible');
+          executeCommand(cmdsWithPrefix[0].text);
+        });
+      } else {
+        item.textContent = prefix + '…';
+        if (PREFIX_HINTS[prefix]) {
+          const hint = document.createElement('span');
+          hint.className = 'autocomplete-hint';
+          hint.textContent = PREFIX_HINTS[prefix];
+          item.appendChild(hint);
+        }
+        item.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          commandInput.value = prefix + ' ';
+          updateAutocomplete();
+        });
+      }
+      autocompleteEl.appendChild(item);
+    }
+    autocompleteEl.classList.add('visible');
+    return;
+  }
+
+  const matches = COMMANDS.filter(c => c.text.startsWith(val) || c.text.includes(val));
 
   if (matches.length === 0 || (matches.length === 1 && matches[0].text === val)) {
     autocompleteEl.classList.remove('visible');
@@ -169,6 +344,32 @@ function executeCommand(text) {
     commandInput.blur();
     return;
   }
+  if (parts[0] === 'octree') {
+    setUseOctree(!getUseOctree());
+    runPipeline();
+    commandInput.value = '';
+    commandInput.blur();
+    return;
+  }
+  if (parts[0] === 'progressive') {
+    useProgressiveMode = !useProgressiveMode;
+    runPipeline();
+    commandInput.value = '';
+    commandInput.blur();
+    return;
+  }
+  if (parts[0] === 'gpu') {
+    toggleGPUMode();
+    commandInput.value = '';
+    commandInput.blur();
+    return;
+  }
+  if (parts[0] === 'bench') {
+    runBench(parts[1] ? parseInt(parts[1], 10) : null);
+    commandInput.value = '';
+    commandInput.blur();
+    return;
+  }
   if (parts[0] === 'resolution' && parts[1]) {
     const n = parseInt(parts[1], 10);
     if (!isNaN(n)) {
@@ -178,6 +379,24 @@ function executeCommand(text) {
       commandInput.blur();
       return;
     }
+  }
+  if (parts[0] === 'visual' && parts[1] === 'anti' && parts[2] === 'via' && parts[3] === 'checker' && parts[4]) {
+    const n = parseFloat(parts[4]);
+    if (!isNaN(n) && n > 0) {
+      setAntiCheckerSize(n);
+      runPipeline();
+      commandInput.value = '';
+      commandInput.blur();
+      return;
+    }
+  }
+  if (parts[0] === 'visual' && parts[1] === 'anti' && parts[2] === 'via' && parts[3] === 'wireframe') {
+    const mode = cycleAntiWireframeMode();
+    console.log('anti wireframe:', mode);
+    runPipeline();
+    commandInput.value = '';
+    commandInput.blur();
+    return;
   }
   if (parts[0] === 'reset') {
     loadDefaultModel(parts[1]);
@@ -232,7 +451,24 @@ function appendHudEntry(stats) {
   hudEntryCount++;
   const entry = document.createElement('div');
   entry.className = 'hud-entry';
-  entry.textContent = `#${hudEntryCount} | ${stats.meshTime}ms | res ${stats.resolution} | ${stats.voxels.toLocaleString()} voxels | ${stats.nodes} nodes`;
+  let text = `#${hudEntryCount} | ${stats.meshTime}ms | res ${stats.resolution} | ${stats.voxels.toLocaleString()} evals | ${stats.nodes} nodes`;
+  if (stats.gpu) {
+    text += ' | GPU';
+  }
+  if (stats.octree) {
+    const o = stats.octree;
+    const pct = o.nodesVisited > 0
+      ? Math.round(100 * (o.nodesCulledOutside + o.nodesCulledInside) / o.nodesVisited)
+      : 0;
+    if (o.bailedOut) {
+      text += ` | octree: bailed out (${pct}% cull @ depth 3), fell back to uniform`;
+    } else {
+      text += ` | octree: ${o.leafCells} leaves, ${pct}% culled (${o.nodesCulledOutside}out+${o.nodesCulledInside}in of ${o.nodesVisited})`;
+    }
+  } else {
+    text += ` | uniform grid`;
+  }
+  entry.textContent = text;
   hudEl.appendChild(entry);
   // Trim old entries
   while (hudEl.children.length > MAX_HUD_ENTRIES) {
@@ -246,31 +482,224 @@ const codeOutput = document.getElementById('code-output');
 const meshingIndicator = document.getElementById('meshing-indicator');
 let pipelinePending = false;
 
+let meshingStartTime = 0;
+let meshingTimerId = null;
+let meshingLastDepths = [];
+
+function formatElapsed(ms) {
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+function renderMeshingIndicator() {
+  const elapsed = formatElapsed(performance.now() - meshingStartTime);
+  const resolutions = meshingLastDepths.map(d => 1 << d);
+  meshingIndicator.textContent = `Meshing ${resolutions.join(', ')}... ${elapsed}`;
+}
+
+function updateMeshingStatus(inFlightDepths) {
+  meshingLastDepths = inFlightDepths;
+  if (inFlightDepths.length === 0) {
+    if (meshingTimerId) { clearInterval(meshingTimerId); meshingTimerId = null; }
+  } else {
+    if (!meshingTimerId) {
+      meshingStartTime = performance.now();
+      meshingTimerId = setInterval(renderMeshingIndicator, 100);
+    }
+    renderMeshingIndicator();
+  }
+}
+
+function stopMeshingTimer() {
+  if (meshingTimerId) { clearInterval(meshingTimerId); meshingTimerId = null; }
+  meshingIndicator.textContent = 'Meshing...';
+}
+
+let cancelProgressive = null;
+let useProgressiveMode = true;
+
+async function toggleGPUMode() {
+  if (!gpuInitialized) {
+    gpuInitialized = true;
+    meshingIndicator.classList.add('visible');
+    meshingIndicator.textContent = 'Initializing WebGPU...';
+    const ok = await initGPU();
+    meshingIndicator.classList.remove('visible');
+    if (!ok) {
+      commandInput.style.borderColor = '#e94560';
+      setTimeout(() => { commandInput.style.borderColor = ''; }, 1000);
+      console.warn('WebGPU not available');
+      return;
+    }
+  }
+  useGPUMode = !useGPUMode;
+  console.log('GPU mode:', useGPUMode ? 'ON' : 'OFF');
+  runPipeline();
+}
+
+async function runBench(singleRes) {
+  // Ensure GPU is initialized
+  if (!gpuInitialized) {
+    gpuInitialized = true;
+    meshingIndicator.classList.add('visible');
+    meshingIndicator.textContent = 'Initializing WebGPU for benchmark...';
+    await initGPU();
+    meshingIndicator.classList.remove('visible');
+  }
+
+  // Show HUD if hidden
+  if (!hudEl.classList.contains('visible')) {
+    hudEl.classList.add('visible');
+  }
+
+  meshingIndicator.classList.add('visible');
+  meshingIndicator.textContent = 'Running benchmark...';
+
+  // Use requestAnimationFrame to let UI update before blocking
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+  const resolutions = singleRes ? [singleRes] : [24, 48, 72, 96];
+  const { results, formatted } = await runBenchmark(resolutions);
+
+  // Display results in HUD
+  const entry = document.createElement('div');
+  entry.className = 'hud-entry';
+  entry.style.whiteSpace = 'pre';
+  entry.style.fontFamily = 'monospace';
+  entry.style.fontSize = '10px';
+  entry.textContent = formatted;
+  hudEl.appendChild(entry);
+  hudEl.scrollTop = hudEl.scrollHeight;
+
+  // Also log to console
+  console.log(formatted);
+
+  meshingIndicator.classList.remove('visible');
+}
+
+async function runGPUPipeline(ast) {
+  meshingIndicator.classList.add('visible');
+  meshingIndicator.textContent = 'GPU meshing...';
+  pipelinePending = true;
+
+  // Progressive GPU: serial refinement through increasing depths
+  if (useProgressiveMode && getUseOctree()) {
+    const targetDepth = resToDepth(getResolution());
+    cancelProgressive = gpuEvaluateOctreeProgressive(ast, targetDepth, (group, depth, stats, isFinal) => {
+      if (group) viewport.setContent(group);
+      if (stats) {
+        appendHudEntry({
+          meshTime: stats.meshTime,
+          resolution: stats.resolution,
+          voxels: stats.octree ? (stats.octree.pointEvals || 0) : 0,
+          nodes: stats.octree ? (stats.octree.leafCells || 0) : 0,
+          octree: stats.octree,
+          gpu: true
+        });
+      }
+      if (isFinal) {
+        meshingIndicator.classList.remove('visible');
+        stopMeshingTimer();
+        pipelinePending = false;
+        cancelProgressive = null;
+      }
+    }, updateMeshingStatus);
+    return;
+  }
+
+  // Non-progressive GPU
+  try {
+    let result = null;
+    if (getUseOctree()) {
+      result = await gpuEvaluateOctree(ast, getResolution());
+    }
+    if (!result) {
+      result = await gpuEvaluate(ast, getResolution());
+    }
+    if (result) {
+      viewport.setContent(result.group);
+      appendHudEntry(result.stats);
+    }
+  } catch (e) {
+    console.error('GPU pipeline failed:', e);
+    // Fall back to CPU
+    const { group, stats } = evaluate(ast);
+    viewport.setContent(group);
+    appendHudEntry(stats);
+  }
+  meshingIndicator.classList.remove('visible');
+  pipelinePending = false;
+}
+
 function runPipeline() {
   if (codeEditedManually) return;
   const roots = getRootBlocks();
-  const ast = generateAST(roots);
+  const rawAST = generateAST(roots);
 
-  const sexpr = ast ? formatSExpr(ast) : '(empty)';
+  const sexpr = rawAST ? formatSExpr(rawAST) : '(empty)';
   codeOutput.value = sexpr;
   codeOutput.style.color = '#a0d0a0';
 
   // Persist to localStorage
   try { localStorage.setItem('schnapp3_model', sexpr); } catch (e) {}
 
-  // Show indicator, yield a frame so the browser paints it, then mesh
-  if (pipelinePending) return;
-  pipelinePending = true;
-  meshingIndicator.classList.add('visible');
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      const { group, stats } = evaluate(ast);
+  // Expand PL constructs (let/var/grow/stir/enzyme/tag) before evaluation
+  const ast = rawAST ? expandAST(rawAST) : null;
+
+  // Cancel any in-flight progressive mesh from previous edit
+  if (cancelProgressive) {
+    cancelProgressive();
+    cancelProgressive = null;
+    stopMeshingTimer();
+  }
+
+  // GPU path: send to WebGPU compute shader
+  if (useGPUMode && isGPUAvailable() && ast) {
+    runGPUPipeline(ast);
+    return;
+  }
+
+  // Decide: use progressive workers for CSG models, sync for simple ones
+  const useProgressive = useProgressiveMode && ast && needsFieldEval(ast);
+
+  if (useProgressive) {
+    meshingIndicator.classList.add('visible');
+    pipelinePending = true;
+
+    const targetDepth = resToDepth(getResolution());
+    const provField = buildProvenanceField(ast);
+    cancelProgressive = meshProgressive(ast, targetDepth, getUseOctree(), (group, depth, stats, isFinal) => {
       viewport.setContent(group);
-      appendHudEntry(stats);
-      meshingIndicator.classList.remove('visible');
-      pipelinePending = false;
+      if (stats) {
+        appendHudEntry({
+          meshTime: stats.meshTime,
+          resolution: stats.resolution,
+          voxels: stats.octree ? (stats.octree.pointEvals || 0) : 0,
+          nodes: stats.octree ? (stats.octree.leafCells || 0) : 0,
+          octree: stats.octree
+        });
+      }
+      if (isFinal) {
+        meshingIndicator.classList.remove('visible');
+        stopMeshingTimer();
+        pipelinePending = false;
+        cancelProgressive = null;
+      }
+    }, updateMeshingStatus, provField);
+  } else {
+    // Simple model — sync eval (instant)
+    if (pipelinePending) return;
+    pipelinePending = true;
+    meshingIndicator.classList.add('visible');
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const { group, stats } = evaluate(ast);
+        viewport.setContent(group);
+        appendHudEntry(stats);
+        meshingIndicator.classList.remove('visible');
+        pipelinePending = false;
+      });
     });
-  });
+  }
 }
 
 subscribe(() => {
@@ -284,13 +713,41 @@ let codeEditedManually = false;
 codeOutput.addEventListener('input', () => {
   codeEditedManually = true;
   try {
-    const ast = parseSExpr(codeOutput.value);
+    const rawAST = parseSExpr(codeOutput.value);
+    const ast = rawAST ? expandAST(rawAST) : null;
     if (ast) {
-      replaceFromAST(ast);
+      replaceFromAST(rawAST);  // blocks reflect the unexpanded AST
       renderWorkspace();
-      const { group, stats } = evaluate(ast);
-      viewport.setContent(group);
-      appendHudEntry(stats);
+
+      // Cancel previous progressive
+      if (cancelProgressive) { cancelProgressive(); cancelProgressive = null; stopMeshingTimer(); }
+
+      if (useGPUMode && isGPUAvailable()) {
+        runGPUPipeline(ast);
+      } else if (useProgressiveMode && needsFieldEval(ast)) {
+        const targetDepth = resToDepth(getResolution());
+        const provField = buildProvenanceField(ast);
+        meshingIndicator.classList.add('visible');
+        cancelProgressive = meshProgressive(ast, targetDepth, getUseOctree(), (group, depth, stats, isFinal) => {
+          viewport.setContent(group);
+          if (stats) {
+            appendHudEntry({
+              meshTime: stats.meshTime, resolution: stats.resolution,
+              voxels: stats.octree ? (stats.octree.pointEvals || 0) : 0,
+              nodes: stats.octree ? (stats.octree.leafCells || 0) : 0, octree: stats.octree
+            });
+          }
+          if (isFinal) {
+            meshingIndicator.classList.remove('visible');
+            stopMeshingTimer();
+            cancelProgressive = null;
+          }
+        }, updateMeshingStatus, provField);
+      } else {
+        const { group, stats } = evaluate(ast);
+        viewport.setContent(group);
+        appendHudEntry(stats);
+      }
       try { localStorage.setItem('schnapp3_model', codeOutput.value); } catch (e) {}
     }
     codeOutput.style.color = '#a0d0a0';

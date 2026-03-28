@@ -5,8 +5,9 @@ import * as THREE from 'three';
 // at the average of edge-crossing positions, then connect adjacent cells' vertices
 // into quads (split into triangles). Normals estimated from field gradient.
 
+// Pure computation — returns raw arrays, no Three.js dependency.
 // colorField: optional (x,y,z) => [r, g, b] in 0..1
-export function meshField(field, bounds, resolution = 48, colorField = null) {
+export function meshFieldRaw(field, bounds, resolution = 48, colorField = null) {
   const [minX, minY, minZ] = bounds.min;
   const [maxX, maxY, maxZ] = bounds.max;
   const n = resolution;
@@ -119,19 +120,35 @@ export function meshField(field, bounds, resolution = 48, colorField = null) {
     normals[i + 2] = nz / len;
   }
 
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(verts), 3));
-  geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  const positions = new Float32Array(verts);
+  let colors = null;
   if (colorField) {
-    const colors = new Float32Array(verts.length);
+    colors = new Float32Array(verts.length);
     for (let i = 0; i < verts.length; i += 3) {
       const [r, g, b] = colorField(verts[i], verts[i+1], verts[i+2]);
       colors[i] = r;
       colors[i+1] = g;
       colors[i+2] = b;
     }
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   }
-  geo.setIndex(faces);
+
+  return { positions, normals, faces, colors };
+}
+
+// Wrap raw mesh data into Three.js BufferGeometry
+export function rawToGeometry(raw) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(raw.positions, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(raw.normals, 3));
+  if (raw.colors) {
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(raw.colors, 3));
+  }
+  geo.setIndex(raw.faces);
   return geo;
+}
+
+// Original API — returns Three.js BufferGeometry (used by evaluator.js)
+export function meshField(field, bounds, resolution = 48, colorField = null) {
+  const raw = meshFieldRaw(field, bounds, resolution, colorField);
+  return rawToGeometry(raw);
 }

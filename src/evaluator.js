@@ -1,11 +1,84 @@
 import * as THREE from 'three';
 import { meshField } from './surface-nets.js';
+import { evalCSGFieldInterval } from './interval-eval.js';
+import { buildOctree, meshOctreeLeaves, resToDepth } from './octree-mesh.js';
 
 // S-expression AST → Three.js geometry
 // Consumes the structured AST from codegen.js, knows nothing about blocks.
 //
 // Two-component (polarity, distance) model from lang-design.md:
 //   polarity ∈ {-1, 0, +1}  — anti-solid / empty / solid
+
+// Anti-solid visual: checkerboard surface + wireframe outline.
+// The checkerboard discards alternating 3D cells so parts of the surface
+// are truly invisible. The wireframe shows the full silhouette so the
+// shape remains legible even with half the surface missing.
+export function addAntiMesh(group, geo, csgField) {
+  // Checkerboard surface
+  const antiMesh = new THREE.Mesh(geo, _makeAntiCheckerMat());
+  if (csgField) stampProvenance(antiMesh, csgField);
+  group.add(antiMesh);
+  // Wireframe overlay (mode-dependent)
+  const wireMat = new THREE.MeshBasicMaterial({
+    color: 0x993333,
+    transparent: true,
+    opacity: 0.25,
+    depthWrite: false
+  });
+  if (antiWireframeMode === 'full') {
+    wireMat.wireframe = true;
+    group.add(new THREE.Mesh(geo, wireMat));
+  } else if (antiWireframeMode === 'edges') {
+    const edgesGeo = new THREE.EdgesGeometry(geo, 30); // 30° threshold
+    const linesMat = new THREE.LineBasicMaterial({
+      color: 0x993333,
+      transparent: true,
+      opacity: 0.5
+    });
+    group.add(new THREE.LineSegments(edgesGeo, linesMat));
+  }
+  // 'off' → no wireframe added
+}
+
+function _makeAntiCheckerMat() {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColor:      { value: new THREE.Color(0xcc4444) },
+      uOpacity:    { value: 0.35 },
+      uSquareSize: { value: antiCheckerSize }   // world-unit size of each checker square
+    },
+    vertexShader: /* glsl */ `
+      varying vec3 vWorldPos;
+      varying vec3 vNormal;
+      void main() {
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWorldPos = wp.xyz;
+        vNormal = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3  uColor;
+      uniform float uOpacity;
+      uniform float uSquareSize;
+      varying vec3  vWorldPos;
+      varying vec3  vNormal;
+      void main() {
+        // 3D checkerboard: uses all three world-space coordinates so
+        // the pattern is view-angle-independent. No projection needed.
+        vec3 cell = floor(vWorldPos / uSquareSize);
+        if (mod(cell.x + cell.y + cell.z, 2.0) < 0.5) discard;
+
+        // Simple diffuse-ish shading so the surface reads as 3D
+        float ndl = 0.4 + 0.6 * abs(dot(vNormal, normalize(vec3(1.0, 2.0, 3.0))));
+        gl_FragColor = vec4(uColor * ndl, uOpacity);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide
+  });
+}
 //   distance ∈ ℝ             — signed distance to nearest surface
 //
 // CSG operators compose each component independently:
@@ -36,17 +109,29 @@ const DEFAULT_RGB = hexToRgb(COLOR_MAP[DEFAULT_COLOR]);
 // Unset renders as gray but yields to any explicit color in CSG operations
 const UNSET_RGB = DEFAULT_RGB;
 
+// Extract child AST nodes from a node, skipping the params object if present.
+// Bare containers (union, intersect, anti, complement) may or may not have a
+// params object at node[1] — tagged ones do, plain ones don't.
+function nodeChildren(node) {
+  if (node[1] && typeof node[1] === 'object' && !Array.isArray(node[1])) {
+    return node.slice(2);
+  }
+  return node.slice(1);
+}
+
 // Does this AST node (or any subtree) require CSG field evaluation?
 // If so, we must mesh the entire subtree via surface-nets rather than
 // using Three.js primitives.
-function needsFieldEval(node) {
+export function needsFieldEval(node) {
+  if (!node || !Array.isArray(node)) return false;
   const type = node[0];
   if (type === 'intersect' || type === 'anti' || type === 'complement' || type === 'fuse'
-      || type === 'mirror' || type === 'twist' || type === 'radial'
+      || type === 'mirror' || type === 'rotate' || type === 'twist' || type === 'radial'
       || type === 'stretch' || type === 'tile' || type === 'bend' || type === 'taper') return true;
-  // Check children recursively
-  const start = (type === 'union' || type === 'intersect' || type === 'anti' || type === 'complement') ? 1 : 2;
-  const children = node.slice(start);
+  // PL nodes should be expanded before reaching here, but handle gracefully
+  if (type === 'let' || type === 'var' || type === 'grow' || type === 'fractal' || type === 'stir' || type === 'enzyme' || type === 'tag' || type === 'tags' || type === 'scalar') return false;
+  // Check children recursively (skip params object at node[1] if present)
+  const children = nodeChildren(node);
   for (const child of children) {
     if (Array.isArray(child) && needsFieldEval(child)) return true;
   }
@@ -54,9 +139,27 @@ function needsFieldEval(node) {
 }
 
 let evalStats = null;
+let useOctree = true;
+export function getUseOctree() { return useOctree; }
+export function setUseOctree(v) { useOctree = v; }
+
+let antiCheckerSize = 3.0;
+export function getAntiCheckerSize() { return antiCheckerSize; }
+export function setAntiCheckerSize(v) { antiCheckerSize = v; }
+
+// 'off' | 'full' | 'edges'
+let antiWireframeMode = 'full';
+const WIREFRAME_MODES = ['off', 'full', 'edges'];
+export function getAntiWireframeMode() { return antiWireframeMode; }
+export function setAntiWireframeMode(v) { antiWireframeMode = v; }
+export function cycleAntiWireframeMode() {
+  const i = WIREFRAME_MODES.indexOf(antiWireframeMode);
+  antiWireframeMode = WIREFRAME_MODES[(i + 1) % WIREFRAME_MODES.length];
+  return antiWireframeMode;
+}
 
 export function evaluate(ast) {
-  evalStats = { nodes: 0, voxels: 0, meshTime: 0, resolution: csgResolution };
+  evalStats = { nodes: 0, voxels: 0, meshTime: 0, resolution: csgResolution, octree: null };
   const t0 = performance.now();
   if (!ast) return { group: new THREE.Group(), stats: evalStats };
   const result = evalNode(ast);
@@ -67,7 +170,24 @@ export function evaluate(ast) {
   return { group, stats: evalStats };
 }
 
+function tagBlockId(obj, node) {
+  if (obj && node._blockId) obj.userData.blockId = node._blockId;
+  return obj;
+}
+
 function evalNode(node) {
+  if (!node || !Array.isArray(node)) {
+    // Bundles from curried stir: evaluate the non-enzyme items as a union
+    if (node && node.__bundle) {
+      const group = new THREE.Group();
+      for (const item of node.items) {
+        const obj = evalNode(item);
+        if (obj) group.add(obj);
+      }
+      return group.children.length ? group : null;
+    }
+    return null; // skip enzyme closures, etc.
+  }
   if (evalStats) evalStats.nodes++;
   const type = node[0];
 
@@ -77,13 +197,13 @@ function evalNode(node) {
       const s = p.size || 20;
       const geo = new THREE.BoxGeometry(s, s, s);
       const mat = new THREE.MeshStandardMaterial({ color: COLOR_MAP[DEFAULT_COLOR] });
-      return new THREE.Mesh(geo, mat);
+      return tagBlockId(new THREE.Mesh(geo, mat), node);
     }
     case 'sphere': {
       const p = node[1];
       const geo = new THREE.SphereGeometry(p.radius || 15, 32, 32);
       const mat = new THREE.MeshStandardMaterial({ color: COLOR_MAP[DEFAULT_COLOR] });
-      return new THREE.Mesh(geo, mat);
+      return tagBlockId(new THREE.Mesh(geo, mat), node);
     }
     case 'cylinder': {
       const p = node[1];
@@ -91,7 +211,7 @@ function evalNode(node) {
       const h = p.height || 30;
       const geo = new THREE.CylinderGeometry(r, r, h, 32);
       const mat = new THREE.MeshStandardMaterial({ color: COLOR_MAP[DEFAULT_COLOR] });
-      return new THREE.Mesh(geo, mat);
+      return tagBlockId(new THREE.Mesh(geo, mat), node);
     }
     case 'translate': {
       const p = node[1];
@@ -99,7 +219,7 @@ function evalNode(node) {
       if (children.length === 0) return null;
       // If any child needs field eval, mesh the whole translate
       if (needsFieldEval(node)) {
-        return meshCSGNode(node);
+        return tagBlockId(meshCSGNode(node), node);
       }
       const group = new THREE.Group();
       group.position.set(p.x || 0, p.y || 0, p.z || 0);
@@ -107,10 +227,10 @@ function evalNode(node) {
         const obj = evalNode(child);
         if (obj) group.add(obj);
       }
-      return group;
+      return tagBlockId(group, node);
     }
     case 'paint': {
-      if (needsFieldEval(node)) return meshCSGNode(node);
+      if (needsFieldEval(node)) return tagBlockId(meshCSGNode(node), node);
       const p = node[1];
       const color = COLOR_MAP[p.color] || COLOR_MAP[DEFAULT_COLOR];
       const children = node.slice(2);
@@ -123,10 +243,11 @@ function evalNode(node) {
           group.add(obj);
         }
       }
-      return group.children.length === 1 ? group.children[0] : group;
+      const result = group.children.length === 1 ? group.children[0] : group;
+      return tagBlockId(result, node);
     }
     case 'recolor': {
-      if (needsFieldEval(node)) return meshCSGNode(node);
+      if (needsFieldEval(node)) return tagBlockId(meshCSGNode(node), node);
       const p = node[1];
       const fromColor = COLOR_MAP[p.from] || COLOR_MAP[DEFAULT_COLOR];
       const toColor = COLOR_MAP[p.to] || COLOR_MAP[DEFAULT_COLOR];
@@ -140,36 +261,41 @@ function evalNode(node) {
           group.add(obj);
         }
       }
-      return group.children.length === 1 ? group.children[0] : group;
+      const result = group.children.length === 1 ? group.children[0] : group;
+      return tagBlockId(result, node);
     }
     case 'union': {
-      const children = node.slice(1);
       if (needsFieldEval(node)) {
-        return meshCSGNode(node);
+        return tagBlockId(meshCSGNode(node), node);
       }
       const group = new THREE.Group();
-      for (const child of children) {
+      for (const child of nodeChildren(node)) {
         const obj = evalNode(child);
         if (obj) group.add(obj);
       }
-      return group;
+      return tagBlockId(group, node);
+    }
+    case 'scalar': {
+      // Tagged scalars that survived to the evaluator — nothing to render
+      return null;
     }
     case 'intersect':
     case 'anti':
     case 'complement': {
-      return meshCSGNode(node);
+      return tagBlockId(meshCSGNode(node), node);
     }
     case 'fuse': {
-      return meshCSGNode(node);
+      return tagBlockId(meshCSGNode(node), node);
     }
     case 'mirror':
+    case 'rotate':
     case 'twist':
     case 'radial':
     case 'stretch':
     case 'tile':
     case 'bend':
     case 'taper': {
-      return meshCSGNode(node);
+      return tagBlockId(meshCSGNode(node), node);
     }
     default:
       return null;
@@ -182,16 +308,33 @@ function evalNode(node) {
 
 let csgResolution = 48;
 export function getResolution() { return csgResolution; }
-export function setResolution(n) { csgResolution = Math.max(16, Math.min(192, n)); }
+export function setResolution(n) { csgResolution = Math.max(16, n); }
+
+// Sample the CSG provenance field at each vertex and store as userData
+function stampProvenance(mesh, csgField) {
+  const pos = mesh.geometry.getAttribute('position');
+  if (!pos) return;
+  const blockIds = new Array(pos.count);
+  for (let i = 0; i < pos.count; i++) {
+    const r = csgField(pos.getX(i), pos.getY(i), pos.getZ(i));
+    blockIds[i] = r.blockId || null;
+  }
+  mesh.userData.vertexBlockIds = blockIds;
+}
+
+// Build a provenance field from an AST for post-processing (progressive path)
+export function buildProvenanceField(ast) {
+  const field = evalCSGField(ast);
+  return (x, y, z) => field(x, y, z).blockId || null;
+}
 
 function meshCSGNode(node) {
   const res = csgResolution;
-  if (evalStats) evalStats.voxels += (res + 1) ** 3;
   const bounds = estimateBounds(node);
   const csgField = evalCSGField(node);
   const group = new THREE.Group();
 
-  // Solid mesh (polarity > 0) with per-vertex color from the field
+  // Solid field: positive polarity → use SDF distance; otherwise push outside
   const solidField = (x, y, z) => {
     const { polarity, distance } = csgField(x, y, z);
     if (polarity > 0) return distance;
@@ -202,32 +345,114 @@ function meshCSGNode(node) {
     return c === UNSET_COLOR ? UNSET_RGB : c;
   };
 
-  const solidGeo = meshField(solidField, bounds, res, solidColorField);
-  if (solidGeo.index && solidGeo.index.count > 0) {
-    const solidMat = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      side: THREE.DoubleSide
-    });
-    group.add(new THREE.Mesh(solidGeo, solidMat));
-  }
-
-  // Anti-solid mesh (polarity < 0): translucent ghost
+  // Anti field: negative polarity → use SDF distance
   const antiField = (x, y, z) => {
     const { polarity, distance } = csgField(x, y, z);
     if (polarity < 0) return distance;
     return Math.abs(distance) + 0.01;
   };
 
+  if (useOctree) {
+    // ---- Octree-accelerated path ----
+    const depth = resToDepth(res);
+    const octreeStats = {
+      nodesVisited: 0, nodesCulledOutside: 0, nodesCulledInside: 0,
+      leafCells: 0, activeCells: 0, surfaceVerts: 0, pointEvals: 0, faces: 0
+    };
+
+    // Build interval evaluator for solid field
+    let intervalField;
+    try {
+      intervalField = evalCSGFieldInterval(node);
+    } catch (e) {
+      console.warn('Octree interval eval failed, falling back to uniform grid:', e);
+      return meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField);
+    }
+
+    // For the solid mesh, the actual field is:
+    //   polarity > 0  → distance  (the SDF)
+    //   polarity <= 0 → abs(distance) + 0.01  (always positive → no surface)
+    // So if the polarity interval is entirely <= 0, there's no solid surface.
+    // If distance interval is entirely > 0, there's no surface either.
+    // We return { distance: [lo, hi] } for the octree classifier.
+    const solidIntervalField = (xIv, yIv, zIv) => {
+      const r = intervalField(xIv, yIv, zIv);
+      // No solid in this region — push distance positive
+      if (r.polarity[1] <= 0) return { distance: [0.01, Infinity], polarity: [0, 0] };
+      // Entirely solid — use raw distance
+      if (r.polarity[0] > 0) return r;
+      // Polarity straddles: region contains a solid/cancelled boundary.
+      // The solidField has a zero-crossing here even if the raw distance
+      // interval is entirely negative. Force ambiguous classification.
+      return {
+        distance: [Math.min(r.distance[0], -0.01), Math.max(r.distance[1], 0.01)],
+        polarity: r.polarity
+      };
+    };
+
+    const leaves = buildOctree(solidIntervalField, bounds, depth, octreeStats);
+
+    // buildOctree returns null if it bailed out (interval arithmetic wasn't helping)
+    if (leaves === null) {
+      if (evalStats) {
+        octreeStats.bailedOut = true;
+        evalStats.octree = octreeStats;
+      }
+      return meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField);
+    }
+
+    const solidGeo = meshOctreeLeaves(leaves, solidField, bounds, depth, solidColorField, octreeStats);
+
+    if (solidGeo.index && solidGeo.index.count > 0) {
+      const solidMat = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        side: THREE.DoubleSide
+      });
+      const solidMesh = new THREE.Mesh(solidGeo, solidMat);
+      stampProvenance(solidMesh, csgField);
+      group.add(solidMesh);
+    }
+
+    // Anti-solid: use uniform grid (anti-solids are typically small/rare)
+    if (evalStats) evalStats.voxels += (res + 1) ** 3;
+    const antiGeo = meshField(antiField, bounds, res);
+    if (antiGeo.index && antiGeo.index.count > 0) {
+      addAntiMesh(group, antiGeo, csgField);
+    }
+
+    // Record stats
+    if (evalStats) {
+      evalStats.octree = octreeStats;
+      evalStats.voxels += octreeStats.pointEvals;
+    }
+
+  } else {
+    // ---- Original uniform grid path ----
+    return meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField);
+  }
+
+  return group;
+}
+
+// Original uniform-grid meshing (fallback)
+function meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField) {
+  if (evalStats) evalStats.voxels += (res + 1) ** 3;
+  const group = new THREE.Group();
+
+  const solidGeo = meshField(solidField, bounds, res, solidColorField);
+  if (solidGeo.index && solidGeo.index.count > 0) {
+    const solidMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      side: THREE.DoubleSide
+    });
+    const solidMesh = new THREE.Mesh(solidGeo, solidMat);
+    stampProvenance(solidMesh, csgField);
+    group.add(solidMesh);
+  }
+
   const antiGeo = meshField(antiField, bounds, res);
   if (antiGeo.index && antiGeo.index.count > 0) {
-    const antiMat = new THREE.MeshStandardMaterial({
-      color: 0xcc4444,
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.35,
-      depthWrite: false
-    });
-    group.add(new THREE.Mesh(antiGeo, antiMat));
+    addAntiMesh(group, antiGeo, csgField);
   }
 
   return group;
@@ -236,17 +461,19 @@ function meshCSGNode(node) {
 // ---- Three-component CSG field evaluation ----
 // Returns (x, y, z) => { polarity: -1|0|+1, distance: number, color: [r,g,b] }
 
-const EMPTY = { polarity: 0, distance: 1e10, color: UNSET_COLOR };
+const EMPTY = { polarity: 0, distance: 1e10, color: UNSET_COLOR, blockId: null };
 
 function evalCSGField(node) {
+  if (!node || !Array.isArray(node)) return () => EMPTY;
   const type = node[0];
+  const bid = node._blockId || null;
 
   switch (type) {
     case 'sphere': {
       const r = node[1].radius || 15;
       return (x, y, z) => {
         const d = Math.sqrt(x*x + y*y + z*z) - r;
-        return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR };
+        return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR, blockId: bid };
       };
     }
     case 'cube': {
@@ -256,7 +483,7 @@ function evalCSGField(node) {
         const outside = Math.sqrt(Math.max(qx,0)**2 + Math.max(qy,0)**2 + Math.max(qz,0)**2);
         const inside = Math.min(Math.max(qx, qy, qz), 0);
         const d = outside + inside;
-        return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR };
+        return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR, blockId: bid };
       };
     }
     case 'cylinder': {
@@ -268,7 +495,7 @@ function evalCSGField(node) {
         const outside = Math.sqrt(Math.max(dx,0)**2 + Math.max(dy,0)**2);
         const inside = Math.min(Math.max(dx, dy), 0);
         const d = outside + inside;
-        return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR };
+        return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR, blockId: bid };
       };
     }
     case 'translate': {
@@ -298,7 +525,7 @@ function evalCSGField(node) {
         : ((fields) => (x, y, z) => csgUnion(fields.map(f => f(x, y, z))))(children.map(c => evalCSGField(c)));
       return (x, y, z) => {
         const r = inner(x, y, z);
-        return { polarity: r.polarity, distance: r.distance, color };
+        return { polarity: r.polarity, distance: r.distance, color, blockId: r.blockId };
       };
     }
     case 'recolor': {
@@ -318,37 +545,38 @@ function evalCSGField(node) {
         const match = r.color !== UNSET_COLOR
           ? fromName !== UNSET_COLOR && Math.abs(r.color[0] - fromRgb[0]) + Math.abs(r.color[1] - fromRgb[1]) + Math.abs(r.color[2] - fromRgb[2]) < 0.05
           : fromName === UNSET_COLOR;
-        return { polarity: r.polarity, distance: r.distance, color: match ? toColor : r.color };
+        return { polarity: r.polarity, distance: r.distance, color: match ? toColor : r.color, blockId: r.blockId };
       };
     }
     case 'union': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => EMPTY;
       const fields = children.map(c => evalCSGField(c));
       return (x, y, z) => csgUnion(fields.map(f => f(x, y, z)));
     }
     case 'intersect': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => EMPTY;
       const fields = children.map(c => evalCSGField(c));
       return (x, y, z) => csgIntersect(fields.map(f => f(x, y, z)));
     }
     case 'anti': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => EMPTY;
       const child = evalCSGField(children[0]);
       return (x, y, z) => {
         const r = child(x, y, z);
-        return { polarity: -r.polarity, distance: r.distance, color: r.color };
+        return { polarity: -r.polarity, distance: r.distance, color: r.color, blockId: r.blockId };
       };
     }
     case 'complement': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => EMPTY;
       const child = evalCSGField(children[0]);
       return (x, y, z) => {
         const r = child(x, y, z);
-        return { polarity: r.polarity, distance: -r.distance, color: r.color };
+        const nd = -r.distance;
+        return { polarity: nd <= 0 ? 1 : 0, distance: nd, color: r.color, blockId: r.blockId };
       };
     }
     case 'fuse': {
@@ -386,7 +614,12 @@ function evalCSGField(node) {
             color[2] += results[i].color[2] * w;
           }
         }
-        return { polarity: Math.sign(pSum), distance: dist, color };
+        // Provenance: pick the highest-weight contributor
+        let bestWeight = -1, bestBlockId = null;
+        for (let i = 0; i < results.length; i++) {
+          if (weights[i] > bestWeight) { bestWeight = weights[i]; bestBlockId = results[i].blockId; }
+        }
+        return { polarity: Math.sign(pSum), distance: dist, color, blockId: bestBlockId };
       };
     }
     case 'mirror': {
@@ -399,6 +632,21 @@ function evalCSGField(node) {
         if (axis === 'x') return child(Math.abs(x), y, z);
         if (axis === 'y') return child(x, Math.abs(y), z);
         return child(x, y, Math.abs(z));
+      };
+    }
+    case 'rotate': {
+      const axis = node[1].axis || 'y';
+      const angleDeg = node[1].angle != null ? node[1].angle : 45;
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY;
+      const child = evalCSGField(children[0]);
+      // rotate: apply inverse rotation (negate angle) to query point
+      const rad = -angleDeg * Math.PI / 180;
+      const c = Math.cos(rad), s = Math.sin(rad);
+      return (x, y, z) => {
+        if (axis === 'y') return child(c * x - s * z, y, s * x + c * z);
+        if (axis === 'x') return child(x, c * y - s * z, s * y + c * z);
+        return child(c * x - s * y, s * x + c * y, z);
       };
     }
     case 'twist': {
@@ -458,7 +706,7 @@ function evalCSGField(node) {
       const minScale = Math.min(sx, sy, sz);
       return (x, y, z) => {
         const result = child(x / sx, y / sy, z / sz);
-        return { polarity: result.polarity, distance: result.distance * minScale, color: result.color };
+        return { polarity: result.polarity, distance: result.distance * minScale, color: result.color, blockId: result.blockId };
       };
     }
     case 'tile': {
@@ -521,11 +769,11 @@ function evalCSGField(node) {
                      : (axis === 'x') ? child(x, u * invScale, v * invScale)
                      : child(u * invScale, v * invScale, z);
         // Scale distance by the local scale factor to maintain valid SDF
-        return { polarity: result.polarity, distance: result.distance * scale, color: result.color };
+        return { polarity: result.polarity, distance: result.distance * scale, color: result.color, blockId: result.blockId };
       };
     }
     default:
-      return () => ({ polarity: 0, distance: 0, color: UNSET_COLOR });
+      return () => ({ polarity: 0, distance: 0, color: UNSET_COLOR, blockId: null });
   }
 }
 
@@ -544,7 +792,7 @@ function csgUnion(results) {
       if (r.color !== UNSET_COLOR) { color = r.color; break; }
     }
   }
-  return { polarity: Math.sign(pSum), distance: best.distance, color };
+  return { polarity: Math.sign(pSum), distance: best.distance, color, blockId: best.blockId };
 }
 
 // CSG intersect: (product of polarities, max(d_A, d_B), color preferring set over unset)
@@ -562,7 +810,7 @@ function csgIntersect(results) {
       if (r.color !== UNSET_COLOR) { color = r.color; break; }
     }
   }
-  return { polarity: pProd, distance: best.distance, color };
+  return { polarity: pProd, distance: best.distance, color, blockId: best.blockId };
 }
 
 // Traverse a Three.js object and set all mesh materials to the given color
@@ -651,7 +899,7 @@ export function evalField(node) {
       };
     }
     case 'union': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => 1e10;
       const fields = children.map(c => evalField(c));
       return (x, y, z) => {
@@ -661,7 +909,7 @@ export function evalField(node) {
       };
     }
     case 'intersect': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => 1e10;
       const fields = children.map(c => evalField(c));
       return (x, y, z) => {
@@ -671,12 +919,12 @@ export function evalField(node) {
       };
     }
     case 'anti': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => 1e10;
       return evalField(children[0]); // anti doesn't change the distance
     }
     case 'complement': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => 1e10;
       const child = evalField(children[0]);
       return (x, y, z) => -child(x, y, z); // negate distance
@@ -698,6 +946,20 @@ export function evalField(node) {
         if (axis === 'x') return child(Math.abs(x), y, z);
         if (axis === 'y') return child(x, Math.abs(y), z);
         return child(x, y, Math.abs(z));
+      };
+    }
+    case 'rotate': {
+      const axis = node[1].axis || 'y';
+      const angleDeg = node[1].angle != null ? node[1].angle : 45;
+      const children = node.slice(2);
+      if (children.length === 0) return () => 1e10;
+      const child = evalField(children[0]);
+      const rad = -angleDeg * Math.PI / 180;
+      const c = Math.cos(rad), s = Math.sin(rad);
+      return (x, y, z) => {
+        if (axis === 'y') return child(c * x - s * z, y, s * x + c * z);
+        if (axis === 'x') return child(x, c * y - s * z, s * y + c * z);
+        return child(c * x - s * y, s * x + c * y, z);
       };
     }
     case 'twist': {
@@ -869,8 +1131,7 @@ export function estimateBounds(node, offset = [0, 0, 0]) {
     }
     case 'anti':
     case 'complement': {
-      const children = node.slice(1);
-      return mergeBounds(children.map(c => estimateBounds(c, offset)));
+      return mergeBounds(nodeChildren(node).map(c => estimateBounds(c, offset)));
     }
     case 'mirror': {
       // Mirror doubles the child across an axis — expand bounds to be symmetric
@@ -881,6 +1142,22 @@ export function estimateBounds(node, offset = [0, 0, 0]) {
       const extent = Math.max(Math.abs(childBounds.min[ai]), Math.abs(childBounds.max[ai]));
       childBounds.min[ai] = offset[ai] - extent;
       childBounds.max[ai] = offset[ai] + extent;
+      return childBounds;
+    }
+    case 'rotate': {
+      // Rotation in the plane perpendicular to the axis — use max radial extent
+      const children = node.slice(2);
+      const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
+      const axis = node[1].axis || 'y';
+      const [a0, a1] = axis === 'x' ? [1, 2] : axis === 'y' ? [0, 2] : [0, 1];
+      const r = Math.max(
+        Math.abs(childBounds.min[a0]), Math.abs(childBounds.max[a0]),
+        Math.abs(childBounds.min[a1]), Math.abs(childBounds.max[a1])
+      );
+      childBounds.min[a0] = offset[a0] - r;
+      childBounds.max[a0] = offset[a0] + r;
+      childBounds.min[a1] = offset[a1] - r;
+      childBounds.max[a1] = offset[a1] + r;
       return childBounds;
     }
     case 'twist': {

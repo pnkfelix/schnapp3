@@ -175,11 +175,26 @@ html, body {
 
 #palette {
   display: flex;
-  gap: 14px;
-  padding: 8px;
-  overflow-x: auto;
+  flex-direction: column;
   flex-shrink: 0;
   border-bottom: 1px solid #0f3460;
+}
+
+#palette-items {
+  display: flex;
+  gap: 10px;
+  padding: 6px 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  min-height: 44px;
+}
+
+#palette-selector {
+  display: flex;
+  gap: 10px;
+  padding: 6px 8px;
+  overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -199,6 +214,11 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Active category's representative block in the selector row */
+.palette-item--selected {
+  border-color: rgba(255,255,255,0.6);
 }
 
 /* ---- Workspace ---- */
@@ -229,6 +249,11 @@ html, body {
   border-radius: 8px;
   margin-bottom: 6px;
   border: 2px solid rgba(255,255,255,0.1);
+}
+.block--highlight {
+  border-color: #fff;
+  box-shadow: 0 0 12px 2px rgba(255,255,255,0.5);
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .block__header {
@@ -402,6 +427,9 @@ html, body {
 .block--complement, .palette-item--complement {
   background: #668;
 }
+.block--rotate, .palette-item--rotate {
+  background: #a5c;
+}
 .block--mirror, .palette-item--mirror {
   background: #5a8;
 }
@@ -422,6 +450,76 @@ html, body {
 }
 .block--taper, .palette-item--taper {
   background: #85a;
+}
+/* PL blocks — binding category */
+.block--let, .palette-item--let {
+  background: #2a6e8f;
+}
+.block--var, .palette-item--var {
+  background: #1a5e7f;
+  border-style: dotted;
+}
+.block--grow, .palette-item--grow {
+  background: #2a8f4e;
+}
+.block--stir, .palette-item--stir {
+  background: #8f6a2a;
+}
+.block--enzyme, .palette-item--enzyme {
+  background: #6a5e8f;
+}
+.block--tag, .palette-item--tag {
+  background: #5e8f6a;
+}
+.block--tags, .palette-item--tags {
+  background: #4e7f5a;
+}
+.block--fractal, .palette-item--fractal {
+  background: #5e3a8f;
+}
+.block--scalar, .palette-item--scalar {
+  background: #8f8f2a;
+}
+/* Expression-capable param slots */
+.expr-slot {
+  display: inline-block;
+  min-width: 48px;
+  min-height: 28px;
+  border: 2px dashed rgba(255,255,255,0.2);
+  border-radius: 6px;
+  vertical-align: middle;
+}
+.expr-slot--active {
+  border-color: #4af;
+  background: rgba(68, 170, 255, 0.15);
+}
+.expr-slot__block {
+  display: inline-block;
+  margin: 0 2px;
+  vertical-align: middle;
+}
+/* Slot labels for let/grow blocks */
+.block__slot-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 0;
+  margin-top: 4px;
+}
+/* Text inputs in block params */
+.block__params input[type="text"],
+.block__inline-param input[type="text"] {
+  flex: 1;
+  min-height: 32px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(0,0,0,0.3);
+  color: #e0e0e0;
+  font-size: 16px;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
 }
 /* ---- Drag ghost ---- */
 
