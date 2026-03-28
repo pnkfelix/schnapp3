@@ -231,6 +231,8 @@ const COMMANDS = [
   { text: 'visual anti via checker 5', hint: 'anti-solid checker size: large' },
   { text: 'visual anti via checker 10', hint: 'anti-solid checker size: very large' },
   { text: 'visual anti via wireframe', hint: 'cycle: off → full → edges' },
+  { text: 'focus reset', hint: 'reset camera focus to origin' },
+  { text: 'focus', hint: 'show current camera focus point' },
   ...Object.keys(DEFAULT_MODELS).map(name => ({
     text: `reset ${name}`, hint: `load ${name} model`
   })),
@@ -394,6 +396,17 @@ function executeCommand(text) {
     const mode = cycleAntiWireframeMode();
     console.log('anti wireframe:', mode);
     runPipeline();
+    commandInput.value = '';
+    commandInput.blur();
+    return;
+  }
+  if (parts[0] === 'focus') {
+    if (parts[1] === 'reset') {
+      viewport.resetFocus();
+    } else {
+      const t = viewport.getFocusTarget();
+      console.log(`focus target: (${t.x.toFixed(1)}, ${t.y.toFixed(1)}, ${t.z.toFixed(1)})`);
+    }
     commandInput.value = '';
     commandInput.blur();
     return;
