@@ -1,17 +1,16 @@
-# SDF Optimization Research: Adapting Matt Keeter's Techniques for Schnapp3
+# SDF Optimization: Keeter's Techniques as Implemented in Schnapp3
 
-## Background: Our Current Bottleneck
+## Background
 
-Schnapp3's evaluator (`src/evaluator.js`) builds a closure tree from the S-expression AST,
-then `meshCSGNode()` hands that closure to `meshField()` in `surface-nets.js`, which samples
-the SDF at every point on an `(n+1)³` grid. At resolution 48, that's ~117K field evaluations;
-at 192, that's ~7.2M. Every single evaluation walks the full closure tree — even for voxels
-that are deep inside or far outside every shape.
+This document was originally written as a research/planning doc proposing the
+adaptation of Matt Keeter's SDF optimization techniques for Schnapp3. The core
+techniques (interval arithmetic + octree pruning) have since been implemented
+and extended. This doc now serves as a reference for the theory behind the
+implementation and a record of lessons learned.
 
 ## Matt Keeter's Key Ideas
 
 Keeter's work (libfive → MPR → Fidget) revolves around three interlocking techniques.
-None of them require a JIT or GPU — they work fine as interpreted algorithms on the CPU.
 
 ### 1. Interval Arithmetic
 
@@ -23,7 +22,7 @@ the true distance for every point in that region.
 **Why it helps:** If `d_lo > 0`, the entire region is outside the shape — skip it.
 If `d_hi < 0`, the entire region is inside — fill it without further subdivision.
 
-**Interval math rules** (straightforward to implement):
+**Interval math rules:**
 ```
 [a,b] + [c,d] = [a+c, b+d]
 [a,b] - [c,d] = [a-d, b-c]
@@ -34,97 +33,108 @@ min([a,b], [c,d]) = [min(a,c), min(b,d)]
 abs([a,b])    = if a≥0: [a,b]; if b≤0: [-b,-a]; else [0, max(-a,b)]
 ```
 
-For Schnapp3, we'd write an interval-arithmetic version of each SDF primitive
-(sphere, cube, cylinder) and each transform (translate, mirror, etc.) alongside
-the existing point evaluators. The signatures change from `(x,y,z) → distance`
-to `(xI, yI, zI) → [dLo, dHi]` where each `xI` is a `[lo, hi]` pair.
+**Our implementation:** `src/interval.js` (153 lines). Also includes `icos`, `isin`,
+`iatan2`, `imod` for domain-warp operators, plus `isoftmin` for fuse, and a
+`classify(interval) → 'inside'|'outside'|'ambiguous'` helper.
 
 ### 2. Octree Spatial Subdivision
 
 **Core idea:** Instead of sampling a flat grid, recursively subdivide the bounding box
 into an octree. At each node:
 
-1. **Evaluate the SDF with interval arithmetic** over the node's bounding box.
+1. Evaluate the SDF with interval arithmetic over the node's bounding box.
 2. If the interval is entirely positive (outside) or entirely negative (inside),
-   **stop recursing** — mark the node as empty or filled.
-3. If the interval straddles zero (surface might pass through), **subdivide into 8 children**
-   and recurse.
-4. At the leaf level (minimum cell size), sample corners and run surface nets
-   as we do today.
+   stop recursing — the node is culled.
+3. If the interval straddles zero (surface might pass through), subdivide into 8 children.
+4. At the leaf level (minimum cell size), sample corners and run surface nets.
 
-**Why it helps:** Large empty/filled regions are classified in one interval evaluation
-instead of `n³` point evaluations. In practice, for most shapes the surface occupies a
-thin shell — the vast majority of octree nodes get pruned early.
+**Our implementation:** `src/octree-core.js` (306 lines). Key additions beyond the
+textbook algorithm:
 
-**Expected speedup:** For a sphere at resolution 48, roughly 80-90% of voxels are
-either clearly inside or clearly outside. An octree with interval pruning can skip
-those entirely. The speedup grows with resolution — at resolution 192, even more
-of the volume is trivially empty.
+- **Two-phase bailout:** A shallow probe to depth 3 checks whether octree pruning
+  is worthwhile. If less than 10% of nodes are culled at the shallow level, the
+  octree is abandoned and we fall back to a flat uniform grid. This avoids overhead
+  for shapes where interval arithmetic doesn't help (e.g., a shape filling the
+  entire bounding box).
 
-### 3. Tape Simplification (Future Enhancement)
+- **Sparse surface nets on octree leaves:** Rather than materializing a full `n³` grid,
+  `meshOctreeLeavesRaw` takes the list of leaf cells from `buildOctree`, samples field
+  values only at corners of active cells (with a Map-based cache for shared corners),
+  and runs surface nets only on those cells. Extended cells (1-ring neighbors of active
+  cells) are included for quad connectivity.
 
-**Core idea:** During interval evaluation, some operations become known constants.
-For example, in `max(A, B)`, if interval(A) is entirely above interval(B), then A
-always wins — B can be pruned from the expression for this region. This produces a
-*simplified tape* (reduced expression) for each octree branch.
+### 3. Tape Simplification (Not Yet Implemented)
 
-**Relevance to Schnapp3:** Our closure-tree structure already "compiles" the AST into
-nested function calls. Tape simplification would mean creating *specialized* closures
-for sub-regions where parts of the tree become irrelevant. This is more complex to
-implement and is a **Phase 2** optimization — the octree + interval arithmetic alone
-will give the big wins.
+**Core idea:** During interval evaluation, when `min(A, B)` resolves to definitely `A`
+(because A's interval is entirely below B's), B's entire subtree can be pruned for that
+spatial region. This produces a *simplified evaluator* that gets shorter as you descend
+the octree.
 
-### 4. Lipschitz Pruning (Even Simpler Alternative)
+**Status:** Not yet implemented. Would be most impactful for scenes with many CSG
+operations (union of many shapes), where most shapes are far from any given region.
+The closure-tree structure in `evalCSGField` could support this by returning specialized
+closures per octree branch.
 
-Keeter's May 2025 blog post "Gradients are the New Intervals" describes a lighter-weight
-approach for SDFs that are Lipschitz-continuous (i.e., |∇f| ≤ 1 everywhere, as proper
-SDFs should be):
+### 4. Lipschitz Pruning (Not Yet Implemented)
 
-**Core idea:** Evaluate `f` at the *center* of a region. If `|f(center)| > radius`
-(where radius is the half-diagonal of the region), the entire region is guaranteed to
-be on one side of the surface.
+Keeter's May 2025 blog post "Gradients are the New Intervals" describes evaluating `f`
+at the center of a region and using `|f(center)| > half_diagonal` as a cheaper pruning
+test for proper SDFs (|∇f| ≤ 1). Attractive for simple scenes, but some of our
+transforms (twist, taper, bend) break Lipschitz continuity.
 
-**Why it's attractive:** Single-point evaluation is cheaper than interval evaluation,
-and Schnapp3's primitives (sphere, cube, cylinder) all have proper Lipschitz-continuous
-SDFs. However, some transforms (twist, taper, bend) break Lipschitz continuity, so
-we'd need to fall back to interval arithmetic for those.
+## What Was Actually Built (Beyond the Original Plan)
 
-## Recommended Implementation Plan for Schnapp3
+The implementation went significantly further than the original research doc anticipated:
 
-### Phase 1: Octree + Interval Arithmetic (Biggest Win)
+### Interval AST evaluator (`src/interval-eval.js`, 544 lines)
+Mirrors `evalCSGField` but over intervals. Returns `{distance: [lo,hi], polarity: [lo,hi]}`
+for each node type including all domain warps (twist, radial, stretch, tile, bend, taper,
+mirror) and PL nodes (let, var, fractal, stir, enzyme).
 
-1. **Add interval evaluator** — a parallel version of `evalCSGField` that takes
-   interval inputs and returns interval outputs. Implement for each primitive and operator.
+### Progressive refinement (`src/progressive.js`, 190 lines)
+Spawns parallel Web Workers at multiple octree depths. Lower depths finish first (blocky
+preview), higher depths refine. Uses a worker pool (up to 6 workers) and generation
+counter to discard stale results.
 
-2. **Replace flat grid with octree in `meshField`** — instead of the triple loop over
-   `(n+1)³`, build an octree that:
-   - Evaluates intervals at each node
-   - Prunes empty/filled nodes
-   - Only samples corners at leaf nodes that straddle the surface
-   - Feeds surviving leaf-cell corners into the existing surface nets algorithm
+### Web Worker meshing (`src/mesh-worker.js`, 105 lines)
+Offloads octree build + surface-net meshing to background threads, keeping the UI
+responsive during evaluation.
 
-3. **Adaptive resolution** — the octree naturally gives higher effective resolution
-   near surfaces and lower resolution in empty space, without increasing total work.
+### WebGPU evaluation (`src/gpu-engine.js`, 1068 lines)
+Compiles AST to a linear tape (`src/gpu-tape.js`), dispatches via WebGPU compute shader.
+Supports both uniform-grid and sparse (octree-guided) dispatch. Falls back to CPU
+when WebGPU is unavailable.
 
-### Phase 2: Lipschitz Pruning for Simple Scenes
+### Pure-computation CSG field (`src/csg-field.js`, 436 lines)
+Extracted from evaluator.js so that Web Workers can import it without Three.js.
 
-For scenes using only well-behaved primitives (no twist/bend/taper), use single-point
-center evaluation + Lipschitz bound as a faster pruning test before falling back to
-interval arithmetic.
+### Test suite
+- `test/interval-tests.js` — interval arithmetic correctness
+- `test/interval-containment-tests.js` — verify intervals contain point samples
+- `test/octree-culling-tests.js` — octree culling correctness including polarity edge cases
+- `test/fp-audit.js` — floating-point width analysis
+- `test/gpu-tape-tests.js` — GPU tape compilation/evaluation
+- `test/bench*.js` — performance benchmarks
 
-### Phase 3: Tape Simplification (Later)
+## Lessons Learned
 
-Build simplified closure trees per octree region. Most impactful for complex scenes
-with many CSG operations.
+### Polarity straddling (PR #57)
+The original research doc flagged a "subtlety with polarity" — the solidField wrapper
+returns `distance` when polarity > 0 and `abs(distance) + 0.01` otherwise. When a
+solid and anti-solid overlap, polarity cancels to 0 but the raw SDF distance may be
+entirely negative (deep inside), causing the octree to wrongly cull the cell as
+"inside" — missing the surface. Fix: detect polarity-straddling intervals and force the
+distance interval to span zero.
 
-## What We're NOT Doing (Yet)
+### Bailout heuristic matters
+Without the two-phase bailout, the octree overhead can slow down simple scenes where
+most of the bounding box is occupied by the shape. The shallow probe at depth 3 catches
+these cases cheaply.
 
-- **JIT compilation** — Keeter's Fidget includes hand-written aarch64/x86_64 JIT.
-  Way too complex for our JS context. The interpreter approach is fine.
-- **GPU evaluation** — Keeter's MPR paper runs everything on CUDA. We're in a browser.
-  WebGPU could be interesting someday but is not the first step.
-- **SIMD batching** — Fidget evaluates 256 points simultaneously via AVX.
-  JS doesn't give us that control, though TypedArrays help somewhat.
+### Conservative intervals for warps are fine
+Twist, bend, taper produce wide intervals. The octree falls back toward brute-force in
+those regions, but the surrounding empty space is still culled efficiently. The FP audit
+(`test/fp-audit.js`) verified that interval overestimation stays bounded in practice.
 
 ## References
 
