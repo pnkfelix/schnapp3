@@ -69,6 +69,11 @@ function axisToU32(axis) {
   return axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
 }
 
+function nodeChildren(node) {
+  if (node[1] && typeof node[1] === 'object' && !Array.isArray(node[1])) return node.slice(2);
+  return node.slice(1);
+}
+
 // Compile an AST node into tape instructions.
 // Returns the number of value-stack entries this subtree produces (always 1 for valid nodes).
 function compileNode(node, tape) {
@@ -161,7 +166,7 @@ function compileNode(node, tape) {
       return count > 0 ? 1 : 0;
     }
     case 'union': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return 0;
       let count = 0;
       for (const child of children) {
@@ -174,7 +179,7 @@ function compileNode(node, tape) {
       return count > 0 ? 1 : 0;
     }
     case 'intersect': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return 0;
       let count = 0;
       for (const child of children) {
@@ -187,7 +192,7 @@ function compileNode(node, tape) {
       return count > 0 ? 1 : 0;
     }
     case 'anti': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return 0;
       const count = compileNode(children[0], tape);
       if (count > 0) {
@@ -196,7 +201,7 @@ function compileNode(node, tape) {
       return count;
     }
     case 'complement': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return 0;
       const count = compileNode(children[0], tape);
       if (count > 0) {

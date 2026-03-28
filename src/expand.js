@@ -53,30 +53,113 @@ const BARE_CONTAINERS = new Set(['union', 'intersect', 'anti', 'complement']);
 // ---- Implicit type tags ----
 
 function implicitTags(node) {
-  // Determine what implicit tag a reduced AST node would get
   if (!Array.isArray(node)) {
-    // Bare scalar
     if (typeof node === 'number') return new Set(['scalar']);
     if (typeof node === 'string') return new Set(['scalar']);
     return new Set();
   }
   const type = node[0];
-  // An enzyme is a function value, not a shape or scalar
+  if (type === 'scalar') return new Set(['scalar']);
   if (type === 'enzyme') return new Set(['enzyme']);
-  // Everything else that's an AST node is geometry (a shape)
   return new Set(['shape']);
 }
 
-// ---- Tagged value representation ----
-// During stir expansion, values are wrapped as { tags: Set<string>, value: AST-node }
+// ---- Tag operations ----
+// Tags are a _tags array on the value itself: in the params object for AST
+// nodes, or a .tags field on enzyme closures and bundles.  Bare scalars
+// (numbers) cannot carry tags; tagging one promotes it to a structured
+// ['scalar', {value, _tags}] node.
 
-function taggedValue(tags, value) {
-  return { tags: new Set(tags), value };
+// Read the explicit tags on a value.
+function getValueTags(v) {
+  if (!v) return [];
+  if (v.__enzyme || v.__bundle) return v.tags || [];
+  if (Array.isArray(v)) {
+    const params = v[1];
+    if (params && typeof params === 'object' && !Array.isArray(params)) {
+      return params._tags || [];
+    }
+  }
+  return [];
 }
 
-function addTags(tv, newTags) {
-  for (const t of newTags) tv.tags.add(t);
-  return tv;
+// Return a copy of v with tagName added to its tags.
+function addTagToValue(v, tagName) {
+  if (v === null || v === undefined) return v;
+
+  // Enzyme closure
+  if (v.__enzyme) {
+    const tags = v.tags ? [...v.tags, tagName] : [tagName];
+    return { ...v, tags };
+  }
+  // Bundle
+  if (v.__bundle) {
+    const tags = v.tags ? [...v.tags, tagName] : [tagName];
+    return { ...v, tags };
+  }
+  // Bare scalar — promote to structured scalar
+  if (!Array.isArray(v)) {
+    return ['scalar', { value: v, _tags: [tagName] }];
+  }
+  // AST node
+  const type = v[0];
+  const existing = (v[1] && typeof v[1] === 'object' && !Array.isArray(v[1]))
+    ? v[1] : null;
+
+  if (existing) {
+    // Node already has params — add tag there
+    const tags = existing._tags ? [...existing._tags, tagName] : [tagName];
+    return [type, { ...existing, _tags: tags }, ...v.slice(2)];
+  }
+  // Bare container (union, intersect, etc.) — insert a params object
+  return [type, { _tags: [tagName] }, ...v.slice(1)];
+}
+
+// Return a copy of v with tagName removed from its tags.
+function stripOneTag(v, tagName) {
+  if (v === null || v === undefined) return v;
+
+  if (v.__enzyme || v.__bundle) {
+    if (!v.tags) return v;
+    const tags = v.tags.filter(t => t !== tagName);
+    return { ...v, tags: tags.length ? tags : undefined };
+  }
+  if (!Array.isArray(v)) return v;
+
+  const type = v[0];
+  const params = (v[1] && typeof v[1] === 'object' && !Array.isArray(v[1]))
+    ? v[1] : null;
+  if (!params || !params._tags) return v;
+
+  const tags = params._tags.filter(t => t !== tagName);
+  if (tags.length === params._tags.length) return v; // tag wasn't present
+
+  // For promoted scalars with no remaining tags, reduce back to bare value
+  if (type === 'scalar' && tags.length === 0) {
+    return params.value;
+  }
+
+  const newParams = { ...params };
+  if (tags.length === 0) delete newParams._tags;
+  else newParams._tags = tags;
+
+  // If this was a bare container that only had _tags in its params, strip the params
+  if (BARE_CONTAINERS.has(type) && Object.keys(newParams).length === 0) {
+    return [type, ...v.slice(2)];
+  }
+  return [type, newParams, ...v.slice(2)];
+}
+
+// Strip ALL tags from a value — used at consumption points (expression
+// params) where the consumer needs the raw scalar or shape.
+function stripTags(v) {
+  if (v === null || v === undefined) return v;
+  if (!Array.isArray(v)) return v;
+  if (v[0] === 'scalar') {
+    const p = v[1];
+    return (p && p._tags) ? p.value : v;
+  }
+  return v;
 }
 
 // ---- Main entry point ----
@@ -145,12 +228,15 @@ function expandNode(node, env) {
     }
 
     case 'tags': {
-      // (tags {names} child)
-      // Outside of stir context, tags wrapper is transparent — just expand child.
-      // Inside stir, collectStirItem handles tag accumulation.
+      // (tags {names} child) — attach tag names to the expanded child value.
+      const p = node[1];
+      const nameList = (p.names || '').trim().split(/\s+/).filter(Boolean);
       const children = node.slice(2);
       if (children.length === 0) return null;
-      return expandNode(children[0], env);
+      let inner = expandNode(children[0], env);
+      if (inner === null) return null;
+      for (const name of nameList) inner = addTagToValue(inner, name);
+      return inner;
     }
 
     case 'scalar': {
@@ -161,11 +247,12 @@ function expandNode(node, env) {
     }
 
     case 'tag': {
-      // (tag {name} child) — transparent outside stir.
-      // Inside stir, collectStirItem handles tag accumulation.
+      // (tag {name} child) — attach tag name to the expanded child value.
       const children = node.slice(2);
       if (children.length === 0) return null;
-      return expandNode(children[0], env);
+      const inner = expandNode(children[0], env);
+      if (inner === null) return null;
+      return addTagToValue(inner, node[1].name || '');
     }
 
     case 'enzyme': {
@@ -180,15 +267,19 @@ function expandNode(node, env) {
     }
 
     default: {
-      // Bare containers (no params object): union, intersect, anti, complement
+      // Bare containers: union, intersect, anti, complement
+      // May or may not have a params object (tagged ones do).
       if (BARE_CONTAINERS.has(type)) {
-        const children = node.slice(1);
+        const hasParams = node[1] && typeof node[1] === 'object' && !Array.isArray(node[1]);
+        const params = hasParams ? node[1] : null;
+        const children = hasParams ? node.slice(2) : node.slice(1);
         const expanded = [];
         for (const child of children) {
           const e = expandNode(child, env);
           if (e !== null) expanded.push(e);
         }
-        return copyBlockId([type, ...expanded], node);
+        const result = params ? [type, params, ...expanded] : [type, ...expanded];
+        return copyBlockId(result, node);
       }
 
       // Look up the expression context for this node type
@@ -221,11 +312,14 @@ function expandWithContext(node, env, ctx) {
     ? node[1] : {};
   const exprSet = new Set(ctx.exprParams);
 
-  // Expand params: only walk into expression-capable slots
+  // Expand params: only walk into expression-capable slots.
+  // Strip tags here because param values live inside a plain object, not
+  // as AST children — stripAllTags (which walks the AST tree) won't
+  // reach inside params objects to clean them up.
   const expandedParams = {};
   for (const [key, val] of Object.entries(params)) {
     if (exprSet.has(key) && Array.isArray(val)) {
-      expandedParams[key] = expandNode(val, env);
+      expandedParams[key] = stripTags(expandNode(val, env));
     } else {
       expandedParams[key] = val;
     }
@@ -275,6 +369,8 @@ function runStirPool(pool) {
 
   while (changed && reactions < MAX_REACTIONS) {
     changed = false;
+
+    // Phase A: try full reactions (all wants satisfied)
     for (let ci = 0; ci < pool.length; ci++) {
       const consumer = pool[ci];
       if (!consumer || consumer.wants.size === 0) continue;
@@ -283,15 +379,12 @@ function runStirPool(pool) {
       const match = matchPool(consumer.wants, pool, ci);
       if (!match) continue;
 
-      // Fire the reaction
+      // Fire the reaction — strip the matched tag from each consumed value
       const enz = consumer.value;
       const bodyEnv = new Map(enz.env);
       for (const [tagName, itemIndex] of match) {
-        bodyEnv.set(tagName, pool[itemIndex].value);
+        bodyEnv.set(tagName, stripOneTag(pool[itemIndex].value, tagName));
       }
-
-      const body = enz.node.length > 2 ? enz.node[2] : ['union'];
-      const result = expandNode(body, bodyEnv);
 
       // Remove consumer and consumed items
       pool[ci] = null;
@@ -299,39 +392,103 @@ function runStirPool(pool) {
         pool[itemIndex] = null;
       }
 
-      // Add the result back into the pool
-      if (result !== null) {
-        addToPool(result, pool);
-      }
+      // Expand body and add result to pool.  Tags in the body (e.g.
+      // (tag "x" expr)) become _tags on the result value, so addToPool
+      // picks them up as carries automatically.
+      const body = enz.node.length > 2 ? enz.node[2] : ['union'];
+      const result = expandNode(body, bodyEnv);
+      if (result !== null) addToPool(result, pool);
 
       changed = true;
       reactions++;
       break; // restart matching
     }
+
+    // Phase B: if no full reaction fired, try partial application (currying)
+    if (!changed) {
+      for (let ci = 0; ci < pool.length; ci++) {
+        const consumer = pool[ci];
+        if (!consumer || consumer.wants.size === 0) continue;
+        if (!consumer.value || !consumer.value.__enzyme) continue;
+
+        const partial = partialMatchPool(consumer.wants, pool, ci);
+        if (!partial) continue;
+
+        // Build partially applied enzyme: bind matched tags (stripped), keep the rest
+        const enz = consumer.value;
+        const newEnv = new Map(enz.env);
+        for (const [tagName, itemIndex] of partial) {
+          newEnv.set(tagName, stripOneTag(pool[itemIndex].value, tagName));
+        }
+
+        const remainingTags = [];
+        for (const tagName of consumer.wants) {
+          if (!partial.has(tagName)) remainingTags.push(tagName);
+        }
+
+        const newNode = [
+          'enzyme',
+          { tags: remainingTags.join(' ') },
+          ...(enz.node.length > 2 ? [enz.node[2]] : [])
+        ];
+        const partialEnzyme = { __enzyme: true, node: newNode, env: newEnv };
+
+        // Remove consumer and consumed items
+        pool[ci] = null;
+        for (const [, itemIndex] of partial) {
+          pool[itemIndex] = null;
+        }
+
+        // Add the partially applied enzyme back — it may now fully match
+        addToPool(partialEnzyme, pool);
+
+        changed = true;
+        reactions++;
+        break; // restart matching
+      }
+    }
   }
 
-  // Collect remaining values
+  // Collect remaining values (including enzyme closures for currying support)
   const remaining = [];
+  let hasEnzyme = false;
   for (const item of pool) {
     if (!item) continue;
-    if (item.value && item.value.__enzyme) continue;
     remaining.push(item.value);
+    if (item.value && item.value.__enzyme) hasEnzyme = true;
   }
 
   if (remaining.length === 0) return null;
   if (remaining.length === 1) return remaining[0];
+  // If any enzymes survive, bundle so a later stir can unpack them.
+  // A plain ['union', ...] would bury the enzymes inside an AST node.
+  if (hasEnzyme) return { __bundle: true, items: remaining };
   return ['union', ...remaining];
 }
 
 // Add an already-expanded value to the pool, with optional extra tags
 function addToPool(expanded, pool, extraTags) {
+  // Unpack bundles: each item enters the pool individually
+  if (expanded && expanded.__bundle) {
+    for (const item of expanded.items) {
+      addToPool(item, pool, extraTags);
+    }
+    return;
+  }
+
   let carries, wants;
   if (expanded && expanded.__enzyme) {
     const tagNames = (expanded.node[1].tags || '').trim().split(/\s+/).filter(Boolean);
     carries = new Set(['block']);
     wants = new Set(tagNames);
+    // Enzyme closures can also carry explicit tags (from currying or tagging)
+    if (expanded.tags) {
+      for (const t of expanded.tags) carries.add(t);
+    }
   } else {
     carries = implicitTags(expanded);
+    // Read explicit tags from the value's _tags field
+    for (const t of getValueTags(expanded)) carries.add(t);
     wants = new Set();
   }
   if (extraTags) {
@@ -363,6 +520,34 @@ function matchPool(wants, pool, consumerIndex) {
   }
 
   return match;
+}
+
+// Partial match: like matchPool but returns whatever tags CAN be matched.
+// Returns Map<tagName, poolIndex> with at least 1 entry, or null if nothing matches.
+// Only returns a result if it's a proper partial match (some but not all tags).
+function partialMatchPool(wants, pool, consumerIndex) {
+  const match = new Map();
+  const used = new Set();
+
+  for (const tagName of wants) {
+    let found = -1;
+    let ambiguous = false;
+    for (let i = 0; i < pool.length; i++) {
+      if (i === consumerIndex) continue;
+      if (pool[i] === null || used.has(i)) continue;
+      if (pool[i].carries.has(tagName)) {
+        if (found >= 0) { ambiguous = true; break; }
+        found = i;
+      }
+    }
+    if (found >= 0 && !ambiguous) {
+      match.set(tagName, found);
+      used.add(found);
+    }
+  }
+
+  if (match.size > 0 && match.size < wants.size) return match;
+  return null;
 }
 
 // ---- Fractal expansion (tree-recursive grow via stir) ----
@@ -436,31 +621,9 @@ function expandFractal(node, env) {
 }
 
 function collectStirItemUnified(child, env, pool) {
-  // tags wrapper: (tags ("a" "b") CHILD) — adds explicit tags to inner value
-  if (Array.isArray(child) && child[0] === 'tags') {
-    const p = child[1];
-    const nameList = (p.names || '').trim().split(/\s+/).filter(Boolean);
-    const innerChildren = child.slice(2);
-    if (innerChildren.length === 0) return;
-    const inner = expandNode(innerChildren[0], env);
-    if (inner === null) return;
-    addToPool(inner, pool, nameList);
-    return;
-  }
-
-  // Single-tag variant: (tag "name" CHILD)
-  if (Array.isArray(child) && child[0] === 'tag') {
-    const p = child[1];
-    const name = p.name || '';
-    const innerChildren = child.slice(2);
-    if (innerChildren.length === 0) return;
-    const inner = expandNode(innerChildren[0], env);
-    if (inner === null) return;
-    addToPool(inner, pool, name ? [name] : []);
-    return;
-  }
-
-  // Expand the child and add to pool
+  // Expand the child and add to pool.
+  // Tags are now preserved as AST metadata by expandNode, and addToPool
+  // extracts explicit tag names as carries. No special-casing needed.
   const expanded = expandNode(child, env);
   if (expanded === null) return;
   addToPool(expanded, pool);

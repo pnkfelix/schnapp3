@@ -22,7 +22,13 @@ const EMPTY_IV = { distance: [1e10, 1e10], polarity: [0, 0] };
 //                    if both bounds < 0 → definitely anti-solid
 //                    if both bounds == 0 → definitely empty
 // For culling we mostly care about the distance interval.
+function nodeChildren(node) {
+  if (node[1] && typeof node[1] === 'object' && !Array.isArray(node[1])) return node.slice(2);
+  return node.slice(1);
+}
+
 export function evalCSGFieldInterval(node) {
+  if (!node || !Array.isArray(node)) return () => ({ polarity: [0, 0], distance: [-Infinity, Infinity] });
   const type = node[0];
 
   switch (type) {
@@ -108,19 +114,19 @@ export function evalCSGFieldInterval(node) {
       return (xIv, yIv, zIv) => ivUnion(fields.map(f => f(xIv, yIv, zIv)));
     }
     case 'union': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => EMPTY_IV;
       const fields = children.map(c => evalCSGFieldInterval(c));
       return (xIv, yIv, zIv) => ivUnion(fields.map(f => f(xIv, yIv, zIv)));
     }
     case 'intersect': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => EMPTY_IV;
       const fields = children.map(c => evalCSGFieldInterval(c));
       return (xIv, yIv, zIv) => ivIntersect(fields.map(f => f(xIv, yIv, zIv)));
     }
     case 'anti': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => EMPTY_IV;
       const child = evalCSGFieldInterval(children[0]);
       return (xIv, yIv, zIv) => {
@@ -129,7 +135,7 @@ export function evalCSGFieldInterval(node) {
       };
     }
     case 'complement': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => EMPTY_IV;
       const child = evalCSGFieldInterval(children[0]);
       return (xIv, yIv, zIv) => {

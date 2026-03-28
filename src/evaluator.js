@@ -109,6 +109,16 @@ const DEFAULT_RGB = hexToRgb(COLOR_MAP[DEFAULT_COLOR]);
 // Unset renders as gray but yields to any explicit color in CSG operations
 const UNSET_RGB = DEFAULT_RGB;
 
+// Extract child AST nodes from a node, skipping the params object if present.
+// Bare containers (union, intersect, anti, complement) may or may not have a
+// params object at node[1] — tagged ones do, plain ones don't.
+function nodeChildren(node) {
+  if (node[1] && typeof node[1] === 'object' && !Array.isArray(node[1])) {
+    return node.slice(2);
+  }
+  return node.slice(1);
+}
+
 // Does this AST node (or any subtree) require CSG field evaluation?
 // If so, we must mesh the entire subtree via surface-nets rather than
 // using Three.js primitives.
@@ -119,10 +129,9 @@ export function needsFieldEval(node) {
       || type === 'mirror' || type === 'rotate' || type === 'twist' || type === 'radial'
       || type === 'stretch' || type === 'tile' || type === 'bend' || type === 'taper') return true;
   // PL nodes should be expanded before reaching here, but handle gracefully
-  if (type === 'let' || type === 'var' || type === 'grow' || type === 'fractal' || type === 'stir' || type === 'enzyme' || type === 'tags' || type === 'tag' || type === 'scalar') return false;
-  // Check children recursively
-  const start = (type === 'union' || type === 'intersect' || type === 'anti' || type === 'complement') ? 1 : 2;
-  const children = node.slice(start);
+  if (type === 'let' || type === 'var' || type === 'grow' || type === 'fractal' || type === 'stir' || type === 'enzyme' || type === 'tag' || type === 'tags' || type === 'scalar') return false;
+  // Check children recursively (skip params object at node[1] if present)
+  const children = nodeChildren(node);
   for (const child of children) {
     if (Array.isArray(child) && needsFieldEval(child)) return true;
   }
@@ -167,6 +176,18 @@ function tagBlockId(obj, node) {
 }
 
 function evalNode(node) {
+  if (!node || !Array.isArray(node)) {
+    // Bundles from curried stir: evaluate the non-enzyme items as a union
+    if (node && node.__bundle) {
+      const group = new THREE.Group();
+      for (const item of node.items) {
+        const obj = evalNode(item);
+        if (obj) group.add(obj);
+      }
+      return group.children.length ? group : null;
+    }
+    return null; // skip enzyme closures, etc.
+  }
   if (evalStats) evalStats.nodes++;
   const type = node[0];
 
@@ -244,16 +265,19 @@ function evalNode(node) {
       return tagBlockId(result, node);
     }
     case 'union': {
-      const children = node.slice(1);
       if (needsFieldEval(node)) {
         return tagBlockId(meshCSGNode(node), node);
       }
       const group = new THREE.Group();
-      for (const child of children) {
+      for (const child of nodeChildren(node)) {
         const obj = evalNode(child);
         if (obj) group.add(obj);
       }
       return tagBlockId(group, node);
+    }
+    case 'scalar': {
+      // Tagged scalars that survived to the evaluator — nothing to render
+      return null;
     }
     case 'intersect':
     case 'anti':
@@ -440,6 +464,7 @@ function meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorF
 const EMPTY = { polarity: 0, distance: 1e10, color: UNSET_COLOR, blockId: null };
 
 function evalCSGField(node) {
+  if (!node || !Array.isArray(node)) return () => EMPTY;
   const type = node[0];
   const bid = node._blockId || null;
 
@@ -524,19 +549,19 @@ function evalCSGField(node) {
       };
     }
     case 'union': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => EMPTY;
       const fields = children.map(c => evalCSGField(c));
       return (x, y, z) => csgUnion(fields.map(f => f(x, y, z)));
     }
     case 'intersect': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => EMPTY;
       const fields = children.map(c => evalCSGField(c));
       return (x, y, z) => csgIntersect(fields.map(f => f(x, y, z)));
     }
     case 'anti': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => EMPTY;
       const child = evalCSGField(children[0]);
       return (x, y, z) => {
@@ -545,7 +570,7 @@ function evalCSGField(node) {
       };
     }
     case 'complement': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => EMPTY;
       const child = evalCSGField(children[0]);
       return (x, y, z) => {
@@ -874,7 +899,7 @@ export function evalField(node) {
       };
     }
     case 'union': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => 1e10;
       const fields = children.map(c => evalField(c));
       return (x, y, z) => {
@@ -884,7 +909,7 @@ export function evalField(node) {
       };
     }
     case 'intersect': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => 1e10;
       const fields = children.map(c => evalField(c));
       return (x, y, z) => {
@@ -894,12 +919,12 @@ export function evalField(node) {
       };
     }
     case 'anti': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => 1e10;
       return evalField(children[0]); // anti doesn't change the distance
     }
     case 'complement': {
-      const children = node.slice(1);
+      const children = nodeChildren(node);
       if (children.length === 0) return () => 1e10;
       const child = evalField(children[0]);
       return (x, y, z) => -child(x, y, z); // negate distance
@@ -1106,8 +1131,7 @@ export function estimateBounds(node, offset = [0, 0, 0]) {
     }
     case 'anti':
     case 'complement': {
-      const children = node.slice(1);
-      return mergeBounds(children.map(c => estimateBounds(c, offset)));
+      return mergeBounds(nodeChildren(node).map(c => estimateBounds(c, offset)));
     }
     case 'mirror': {
       // Mirror doubles the child across an axis — expand bounds to be symmetric
