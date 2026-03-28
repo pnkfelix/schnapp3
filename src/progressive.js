@@ -72,7 +72,7 @@ function buildGroup(solid, anti, provenanceField) {
     const csgField = provenanceField
       ? (x, y, z) => ({ blockId: provenanceField(x, y, z) })
       : null;
-    addAntiMesh(group, antiGeo, csgField);
+    addAntiMesh(group, antiGeo);
   }
 
   return group;

@@ -1,13 +1,15 @@
 import { createViewport } from './viewport.js';
 import { initPalette, initWorkspace, renderWorkspace, subscribe, getRootBlocks, addBlockToRoot, addBlockAsChild, updateParam, replaceFromAST, highlightBlock } from './blocks.js';
 import { generateAST, formatSExpr } from './codegen.js';
-import { evaluate, getResolution, setResolution, getUseOctree, setUseOctree, getAntiCheckerSize, setAntiCheckerSize, cycleAntiWireframeMode, needsFieldEval, buildProvenanceField } from './evaluator.js';
+import { evaluate, getResolution, getUseOctree, needsFieldEval, buildProvenanceField } from './evaluator.js';
 import { meshProgressive } from './progressive.js';
 import { resToDepth } from './octree-core.js';
 import { parseSExpr } from './parser.js';
 import { expandAST } from './expand.js';
 import { initGPU, gpuEvaluate, gpuEvaluateOctree, gpuEvaluateOctreeProgressive, isGPUAvailable } from './gpu-engine.js';
 import { runBenchmark } from './benchmark.js';
+import { DEFAULT_MODELS, DEFAULT_MODEL_NAME } from './models/defaults.js';
+import { initCommandBar } from './ui/command-bar.js';
 
 // Boot viewport
 const viewport = createViewport(document.getElementById('viewport-panel'));
@@ -21,438 +23,9 @@ viewport.onTap((blockId) => {
   highlightBlock(blockId);
 });
 
-// Named default models (S-expr strings)
-const DEFAULT_MODELS = {
-  lizard: `(union
-  (paint :color "orange"
-    (union
-      (translate 5 15 5
-        (sphere 5))
-      (translate 5 15 -5
-        (sphere 5))))
-  (intersect
-    (union
-      (paint :color "green"
-        (fuse :k 5
-          (translate 18 0 0
-            (cube 10))
-          (sphere 15)))
-      (anti
-        (cylinder 8 30)))))`,
-
-  csg: `(union
-  (intersect
-    (cube 25)
-    (sphere 18))
-  (translate 40 0 0
-    (union
-      (cube 20)
-      (anti
-        (sphere 12))))
-  (translate -40 0 0
-    (fuse :k 5
-      (cube 20)
-      (anti
-        (sphere 12)))))`,
-
-  cube: `(cube 20)`,
-
-  warps: `(union
-  (mirror :axis "x"
-    (translate 12 0 0
-      (sphere 8)))
-  (translate 40 0 0
-    (twist :axis "y" :rate 0.15
-      (cube 20)))
-  (translate -40 0 0
-    (radial :axis "y" :count 6
-      (translate 12 0 0
-        (sphere 5))))
-  (translate 0 30 0
-    (stretch :sx 2 :sy 0.5 :sz 1
-      (sphere 12)))
-  (translate 0 -30 0
-    (bend :axis "y" :rate 0.04
-      (paint :color "green"
-        (cube 25))))
-  (translate 0 0 40
-    (taper :axis "y" :rate 0.03
-      (paint :color "orange"
-        (cylinder 10 40)))))`,
-
-  pl: `(let "eye"
-  (enzyme :tags ("radius")
-    (union
-      (paint :color "orange"
-        (sphere (var "radius")))
-      (translate 0 0 2
-        (sphere 1))))
-  (union
-    (let "body"
-      (paint :color "green"
-        (fuse :k 5
-          (sphere 12)
-          (translate 15 0 0
-            (cube 8))))
-      (union
-        (var "body")
-        (translate 5 12 5
-          (stir
-            (var "eye")
-            (tag "radius" (scalar 3))))
-        (translate 5 12 -5
-          (stir
-            (var "eye")
-            (tag "radius" (scalar 3))))))
-    (translate 50 0 0
-      (grow "acc" :count 6
-        (cube 8)
-        (union
-          (translate 12 4 0 (var "acc"))
-          (paint :color "blue"
-            (sphere 3)))))))`,
-
-  grow: `(grow "acc" :count 8
-  (paint :color "orange"
-    (cube 6))
-  (union
-    (translate 10 5 0 (var "acc"))
-    (paint :color "blue"
-      (sphere 4))))`,
-  fractal: `(fractal :count 3
-  (paint :color "green"
-    (cube 10))
-  (enzyme :tags ("step")
-    (enzyme :tags ("shape")
-      (union
-        (var "shape")
-        (translate 12 12 0
-          (stretch :sx 0.6 :sy 0.6 :sz 0.6
-            (stir
-              (var "step")
-              (tag "shape"
-                (paint :color "orange"
-                  (var "shape"))))))
-        (translate -12 12 0
-          (stretch :sx 0.6 :sy 0.6 :sz 0.6
-            (stir
-              (var "step")
-              (tag "shape"
-                (paint :color "blue"
-                  (var "shape"))))))))))`,
-  menger: `(stir
-  (enzyme :tags ("s" "d" "n")
-    (fractal :count 2
-      (cube 30)
-      (enzyme :tags ("step")
-        (enzyme :tags ("shape")
-              (union
-                (translate (var "n") (var "n") (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
-                (translate       0  (var "n") (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
-                (translate (var "d") (var "n") (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
-                (translate (var "n")       0  (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
-                (translate (var "d")       0  (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
-                (translate (var "n") (var "d") (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
-                (translate       0  (var "d") (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
-                (translate (var "d") (var "d") (var "n") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
-                (translate (var "n") (var "n")       0  (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
-                (translate (var "d") (var "n")       0  (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
-                (translate (var "n") (var "d")       0  (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
-                (translate (var "d") (var "d")       0  (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
-                (translate (var "n") (var "n") (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
-                (translate       0  (var "n") (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
-                (translate (var "d") (var "n") (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
-                (translate (var "n")       0  (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
-                (translate (var "d")       0  (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
-                (translate (var "n") (var "d") (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
-                (translate       0  (var "d") (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape")))))
-                (translate (var "d") (var "d") (var "d") (stretch :sx (var "s") :sy (var "s") :sz (var "s") (stir (var "step") (tag "shape" (var "shape"))))))))))
-  (tag "s" (scalar 0.333))
-  (tag "d" (scalar 10))
-  (tag "n" (scalar -10)))`,
-};
-
-const DEFAULT_MODEL_NAME = 'lizard';
-
 // GPU mode state
 let useGPUMode = false;
 let gpuInitialized = false;
-
-// ---- Command bar ----
-
-const PANEL_NAMES = ['blocks', 'code', '3d'];
-const PANEL_MAP = { blocks: 'workspace', code: 'code', '3d': '3d' };
-
-function showPanels(names) {
-  // Deactivate all main panels
-  for (const p of document.querySelectorAll('#workspace-panel, #code-panel, #viewport-panel')) {
-    p.classList.remove('panel--active');
-  }
-  // Activate requested (max 2)
-  for (const name of names.slice(0, 2)) {
-    const dataPanel = PANEL_MAP[name];
-    if (dataPanel) {
-      document.querySelector(`.panel[data-panel="${dataPanel}"]`).classList.add('panel--active');
-    }
-  }
-}
-
-const PREFIX_HINTS = {
-  show: 'choose visible panels',
-  resolution: 'set mesh resolution',
-  reset: 'load a model',
-  bench: 'run performance benchmark',
-  visual: 'anti-solid visualization',
-};
-
-const COMMANDS = [
-  { text: 'show blocks 3d', hint: 'blocks + 3D preview' },
-  { text: 'show blocks code', hint: 'blocks + code preview' },
-  { text: 'show blocks', hint: 'blocks only' },
-  { text: 'show 3d', hint: '3D preview only' },
-  { text: 'show code', hint: 'code preview only' },
-  { text: 'show code 3d', hint: 'code + 3D preview' },
-  { text: 'hud', hint: 'toggle meshing stats overlay' },
-  { text: 'resolution 48', hint: 'default (fast)' },
-  { text: 'resolution 72', hint: 'medium' },
-  { text: 'resolution 96', hint: 'fine' },
-  { text: 'resolution 128', hint: 'very fine' },
-  { text: 'resolution 256', hint: 'ultra (octree recommended)' },
-  { text: 'resolution 512', hint: 'extreme (octree only)' },
-  { text: 'reset', hint: 'restore default model' },
-  { text: 'octree', hint: 'toggle octree acceleration on/off' },
-  { text: 'progressive', hint: 'toggle progressive refinement on/off' },
-  { text: 'gpu', hint: 'toggle WebGPU SDF evaluation on/off' },
-  { text: 'bench', hint: 'run GPU vs CPU performance benchmark' },
-  { text: 'bench 48', hint: 'benchmark at resolution 48 only' },
-  { text: 'bench 96', hint: 'benchmark at resolution 96 only' },
-  { text: 'visual anti via checker 1', hint: 'anti-solid checker size: tiny' },
-  { text: 'visual anti via checker 3', hint: 'anti-solid checker size: default' },
-  { text: 'visual anti via checker 5', hint: 'anti-solid checker size: large' },
-  { text: 'visual anti via checker 10', hint: 'anti-solid checker size: very large' },
-  { text: 'visual anti via wireframe', hint: 'cycle: off → full → edges' },
-  { text: 'focus reset', hint: 'reset camera focus to origin' },
-  { text: 'focus', hint: 'show current camera focus point' },
-  ...Object.keys(DEFAULT_MODELS).map(name => ({
-    text: `reset ${name}`, hint: `load ${name} model`
-  })),
-];
-
-const commandInput = document.getElementById('command-input');
-const autocompleteEl = document.getElementById('autocomplete');
-let selectedIndex = -1;
-
-function updateAutocomplete() {
-  const val = commandInput.value.trim().toLowerCase();
-
-  // When input is empty, show unique first-word prefixes instead of all commands
-  if (val.length === 0) {
-    const prefixes = [];
-    const seen = new Set();
-    for (const c of COMMANDS) {
-      const first = c.text.split(/\s+/)[0];
-      if (!seen.has(first)) {
-        seen.add(first);
-        prefixes.push(first);
-      }
-    }
-    selectedIndex = -1;
-    autocompleteEl.innerHTML = '';
-    for (const prefix of prefixes) {
-      const item = document.createElement('div');
-      item.className = 'autocomplete-item';
-      // If only one command starts with this prefix, show it directly
-      const cmdsWithPrefix = COMMANDS.filter(c => c.text.split(/\s+/)[0] === prefix);
-      if (cmdsWithPrefix.length === 1) {
-        item.textContent = cmdsWithPrefix[0].text;
-        const hint = document.createElement('span');
-        hint.className = 'autocomplete-hint';
-        hint.textContent = cmdsWithPrefix[0].hint;
-        item.appendChild(hint);
-        item.addEventListener('pointerdown', (e) => {
-          e.preventDefault();
-          commandInput.value = cmdsWithPrefix[0].text;
-          autocompleteEl.classList.remove('visible');
-          executeCommand(cmdsWithPrefix[0].text);
-        });
-      } else {
-        item.textContent = prefix + '…';
-        if (PREFIX_HINTS[prefix]) {
-          const hint = document.createElement('span');
-          hint.className = 'autocomplete-hint';
-          hint.textContent = PREFIX_HINTS[prefix];
-          item.appendChild(hint);
-        }
-        item.addEventListener('pointerdown', (e) => {
-          e.preventDefault();
-          commandInput.value = prefix + ' ';
-          updateAutocomplete();
-        });
-      }
-      autocompleteEl.appendChild(item);
-    }
-    autocompleteEl.classList.add('visible');
-    return;
-  }
-
-  const matches = COMMANDS.filter(c => c.text.startsWith(val) || c.text.includes(val));
-
-  if (matches.length === 0 || (matches.length === 1 && matches[0].text === val)) {
-    autocompleteEl.classList.remove('visible');
-    return;
-  }
-
-  selectedIndex = -1;
-  autocompleteEl.innerHTML = '';
-  for (let i = 0; i < matches.length; i++) {
-    const item = document.createElement('div');
-    item.className = 'autocomplete-item';
-    item.textContent = matches[i].text;
-    const hint = document.createElement('span');
-    hint.className = 'autocomplete-hint';
-    hint.textContent = matches[i].hint;
-    item.appendChild(hint);
-    item.addEventListener('pointerdown', (e) => {
-      e.preventDefault(); // keep focus on input
-      commandInput.value = matches[i].text;
-      autocompleteEl.classList.remove('visible');
-      executeCommand(matches[i].text);
-    });
-    autocompleteEl.appendChild(item);
-  }
-  autocompleteEl.classList.add('visible');
-}
-
-function executeCommand(text) {
-  const parts = text.trim().toLowerCase().split(/\s+/);
-  if (parts[0] === 'show' && parts.length >= 2) {
-    const panels = parts.slice(1).filter(p => PANEL_NAMES.includes(p));
-    if (panels.length > 0) {
-      showPanels(panels);
-      commandInput.value = '';
-      commandInput.blur();
-      return;
-    }
-  }
-  if (parts[0] === 'hud') {
-    hudEl.classList.toggle('visible');
-    if (hudEl.classList.contains('visible')) {
-      hudEl.innerHTML = '';
-      hudEntryCount = 0;
-      codeEditedManually = false;
-      runPipeline();
-    }
-    commandInput.value = '';
-    commandInput.blur();
-    return;
-  }
-  if (parts[0] === 'octree') {
-    setUseOctree(!getUseOctree());
-    runPipeline();
-    commandInput.value = '';
-    commandInput.blur();
-    return;
-  }
-  if (parts[0] === 'progressive') {
-    useProgressiveMode = !useProgressiveMode;
-    runPipeline();
-    commandInput.value = '';
-    commandInput.blur();
-    return;
-  }
-  if (parts[0] === 'gpu') {
-    toggleGPUMode();
-    commandInput.value = '';
-    commandInput.blur();
-    return;
-  }
-  if (parts[0] === 'bench') {
-    runBench(parts[1] ? parseInt(parts[1], 10) : null);
-    commandInput.value = '';
-    commandInput.blur();
-    return;
-  }
-  if (parts[0] === 'resolution' && parts[1]) {
-    const n = parseInt(parts[1], 10);
-    if (!isNaN(n)) {
-      setResolution(n);
-      runPipeline();
-      commandInput.value = '';
-      commandInput.blur();
-      return;
-    }
-  }
-  if (parts[0] === 'visual' && parts[1] === 'anti' && parts[2] === 'via' && parts[3] === 'checker' && parts[4]) {
-    const n = parseFloat(parts[4]);
-    if (!isNaN(n) && n > 0) {
-      setAntiCheckerSize(n);
-      runPipeline();
-      commandInput.value = '';
-      commandInput.blur();
-      return;
-    }
-  }
-  if (parts[0] === 'visual' && parts[1] === 'anti' && parts[2] === 'via' && parts[3] === 'wireframe') {
-    const mode = cycleAntiWireframeMode();
-    console.log('anti wireframe:', mode);
-    runPipeline();
-    commandInput.value = '';
-    commandInput.blur();
-    return;
-  }
-  if (parts[0] === 'focus') {
-    if (parts[1] === 'reset') {
-      viewport.resetFocus();
-    } else {
-      const t = viewport.getFocusTarget();
-      console.log(`focus target: (${t.x.toFixed(1)}, ${t.y.toFixed(1)}, ${t.z.toFixed(1)})`);
-    }
-    commandInput.value = '';
-    commandInput.blur();
-    return;
-  }
-  if (parts[0] === 'reset') {
-    loadDefaultModel(parts[1]);
-    commandInput.value = '';
-    commandInput.blur();
-    return;
-  }
-  // Unknown command — flash the input red briefly
-  commandInput.style.borderColor = '#e94560';
-  setTimeout(() => { commandInput.style.borderColor = ''; }, 500);
-}
-
-document.getElementById('command-go').addEventListener('click', () => {
-  executeCommand(commandInput.value);
-});
-
-commandInput.addEventListener('input', updateAutocomplete);
-commandInput.addEventListener('focus', updateAutocomplete);
-commandInput.addEventListener('blur', () => {
-  // Delay to allow pointerdown on autocomplete items
-  setTimeout(() => autocompleteEl.classList.remove('visible'), 150);
-});
-commandInput.addEventListener('keydown', (e) => {
-  const items = autocompleteEl.querySelectorAll('.autocomplete-item');
-  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-    e.preventDefault();
-    if (e.key === 'ArrowDown') selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
-    else selectedIndex = Math.max(selectedIndex - 1, -1);
-    for (let i = 0; i < items.length; i++) {
-      items[i].classList.toggle('autocomplete-item--selected', i === selectedIndex);
-    }
-  } else if (e.key === 'Enter') {
-    e.preventDefault();
-    if (selectedIndex >= 0 && items[selectedIndex]) {
-      commandInput.value = items[selectedIndex].textContent.replace(/\s+[a-z+ ]+$/, '');
-      // Extract just the command text (before the hint)
-      const cmd = COMMANDS.find(c => items[selectedIndex].textContent.startsWith(c.text));
-      if (cmd) commandInput.value = cmd.text;
-    }
-    autocompleteEl.classList.remove('visible');
-    executeCommand(commandInput.value);
-  }
-});
 
 // ---- HUD ----
 const hudEl = document.getElementById('hud');
@@ -784,6 +357,27 @@ function loadDefaultModel(name) {
   try { localStorage.removeItem('schnapp3_model'); } catch (e) {}
   loadModel(DEFAULT_MODELS[modelName]);
 }
+
+// Initialize command bar with callbacks into main module
+initCommandBar(Object.keys(DEFAULT_MODELS), {
+  viewport,
+  runPipeline,
+  toggleGPUMode,
+  runBench,
+  loadDefaultModel,
+  toggleHud() {
+    hudEl.classList.toggle('visible');
+    if (hudEl.classList.contains('visible')) {
+      hudEl.innerHTML = '';
+      hudEntryCount = 0;
+      codeEditedManually = false;
+      runPipeline();
+    }
+  },
+  toggleProgressive() {
+    useProgressiveMode = !useProgressiveMode;
+  },
+});
 
 // Load saved model or default
 const saved = (() => { try { return localStorage.getItem('schnapp3_model'); } catch (e) { return null; } })();
