@@ -466,6 +466,81 @@ export function replaceFromAST(ast) {
   }
 }
 
+// Wrap an existing block with a new block created from the palette.
+// The new wrapper replaces the target in its parent, and the target becomes the wrapper's first child.
+export function wrapBlockWithNew(targetId, wrapperType) {
+  const target = allBlocks.get(targetId);
+  if (!target) return null;
+  const wrapperDef = BLOCK_DEFS[wrapperType];
+  if (!wrapperDef || wrapperDef.maxChildren === 0) return null;
+
+  const wrapper = createBlock(wrapperType);
+
+  // Replace target in its parent (or root list) with the wrapper
+  if (target.parent) {
+    const parent = allBlocks.get(target.parent);
+    const idx = parent.children.indexOf(target);
+    if (idx >= 0) {
+      parent.children[idx] = wrapper;
+      wrapper.parent = target.parent;
+    }
+  } else {
+    const idx = rootBlocks.indexOf(target);
+    if (idx >= 0) {
+      rootBlocks[idx] = wrapper;
+    }
+  }
+
+  // Make target the wrapper's first child
+  target.parent = wrapper.id;
+  wrapper.children.push(target);
+
+  notify();
+  return wrapper;
+}
+
+// Wrap an existing block with another existing block (workspace drag).
+// The wrapper is removed from its current position, replaces the target, and the target becomes its child.
+export function wrapBlockWithExisting(targetId, wrapperId) {
+  const target = allBlocks.get(targetId);
+  const wrapper = allBlocks.get(wrapperId);
+  if (!target || !wrapper || target.id === wrapper.id) return;
+  const wrapperDef = BLOCK_DEFS[wrapper.type];
+  if (!wrapperDef || wrapperDef.maxChildren === 0) return;
+
+  // Prevent wrapping an ancestor with its descendant (would create cycle)
+  let ancestor = target;
+  while (ancestor) {
+    if (ancestor.id === wrapperId) return;
+    ancestor = ancestor.parent ? allBlocks.get(ancestor.parent) : null;
+  }
+
+  // Remove wrapper from its current position
+  removeBlockFromParent(wrapper);
+
+  // Replace target in its parent (or root list) with the wrapper
+  if (target.parent) {
+    const parent = allBlocks.get(target.parent);
+    const idx = parent.children.indexOf(target);
+    if (idx >= 0) {
+      parent.children[idx] = wrapper;
+      wrapper.parent = target.parent;
+    }
+  } else {
+    const idx = rootBlocks.indexOf(target);
+    if (idx >= 0) {
+      rootBlocks[idx] = wrapper;
+      wrapper.parent = null;
+    }
+  }
+
+  // Make target the wrapper's first child (appended after any existing children)
+  target.parent = wrapper.id;
+  wrapper.children.push(target);
+
+  notify();
+}
+
 export function moveBlock(blockId, newParentId, index) {
   const block = allBlocks.get(blockId);
   if (!block) return;
@@ -522,10 +597,13 @@ export function initPalette(el) {
   // Wire up drag/drop with block operations
   initDragDrop({
     getBlock,
+    getBlockDef: (type) => BLOCK_DEFS[type],
     getBlockLabel: (type) => BLOCK_DEFS[type].label,
     addBlockToRoot,
     addBlockAsChild,
     moveBlock,
+    wrapBlockWithNew,
+    wrapBlockWithExisting,
     setExprSlot,
     moveToExprSlot,
     markBlockUsed,
