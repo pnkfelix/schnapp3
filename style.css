@@ -294,6 +294,31 @@ html, body {
   background: rgba(255,80,80,0.5);
 }
 
+.block__promote {
+  min-width: 32px;
+  min-height: 32px;
+  border: none;
+  background: rgba(255,255,255,0.10);
+  color: rgba(255,255,255,0.8);
+  border-radius: 6px;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  margin-right: 4px;
+}
+
+.block__promote:hover:not(:disabled) {
+  background: rgba(100,200,255,0.4);
+}
+
+.block__promote:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 /* Inline single-param in header (e.g. paint color, fuse k) */
 .block__inline-param {
   display: flex;

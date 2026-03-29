@@ -541,6 +541,43 @@ export function wrapBlockWithExisting(targetId, wrapperId) {
   notify();
 }
 
+export function promoteChildren(blockId) {
+  const block = allBlocks.get(blockId);
+  if (!block || block.children.length === 0) return;
+
+  const children = [...block.children];
+
+  if (block.parent) {
+    const parent = allBlocks.get(block.parent);
+    const parentDef = BLOCK_DEFS[parent.type];
+
+    // Don't promote in labeled-slot parents
+    if (parent.type === 'let' || parent.type === 'grow') return;
+
+    // Check capacity
+    if (parentDef.maxChildren !== Infinity) {
+      const newCount = parent.children.length - 1 + children.length;
+      if (newCount > parentDef.maxChildren) return;
+    }
+
+    const idx = parent.children.indexOf(block);
+    block.children = [];
+    for (const child of children) {
+      child.parent = block.parent;
+    }
+    parent.children.splice(idx, 0, ...children);
+  } else {
+    const idx = rootBlocks.indexOf(block);
+    block.children = [];
+    for (const child of children) {
+      child.parent = null;
+    }
+    rootBlocks.splice(idx, 0, ...children);
+  }
+
+  notify();
+}
+
 export function moveBlock(blockId, newParentId, index) {
   const block = allBlocks.get(blockId);
   if (!block) return;
@@ -853,6 +890,39 @@ function renderBlock(block) {
     header.appendChild(inlineEl);
   }
 
+  // Promote children button — only shown when block has children
+  if (block.children.length > 0) {
+    const promote = document.createElement('button');
+    promote.className = 'block__promote';
+    promote.textContent = '\u2934';
+    promote.dataset.promoteId = block.id;
+
+    // Determine if promote should be disabled
+    let disabled = false;
+    let tooltip = '';
+    if (block.parent) {
+      const parent = allBlocks.get(block.parent);
+      const parentDef = BLOCK_DEFS[parent.type];
+      const isLabeledSlot = parent.type === 'let' || parent.type === 'grow';
+      if (isLabeledSlot) {
+        disabled = true;
+        tooltip = 'Cannot promote: parent has labeled slots';
+      } else if (parentDef.maxChildren !== Infinity) {
+        const newCount = parent.children.length - 1 + block.children.length;
+        if (newCount > parentDef.maxChildren) {
+          disabled = true;
+          tooltip = `Cannot promote: parent accepts at most ${parentDef.maxChildren} children`;
+        }
+      }
+    }
+
+    if (disabled) {
+      promote.disabled = true;
+      promote.title = tooltip;
+    }
+    header.appendChild(promote);
+  }
+
   const del = document.createElement('button');
   del.className = 'block__delete';
   del.textContent = '\u00d7';
@@ -959,6 +1029,13 @@ function onParamChange(e) {
 }
 
 function onWorkspaceClick(e) {
+  const promoteBtn = e.target.closest('.block__promote');
+  if (promoteBtn && promoteBtn.dataset.promoteId && !promoteBtn.disabled) {
+    e.stopPropagation();
+    promoteChildren(promoteBtn.dataset.promoteId);
+    renderWorkspace();
+    return;
+  }
   const delBtn = e.target.closest('.block__delete');
   if (delBtn && delBtn.dataset.deleteId) {
     e.stopPropagation();
