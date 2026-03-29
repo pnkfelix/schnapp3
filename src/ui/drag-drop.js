@@ -85,8 +85,16 @@ function onDragEnd(e) {
   // or "expr:blockId:paramName" for expression param slots
   const raw = findDropTarget(e.clientX, e.clientY);
 
+  // Handle wrap-on-drop
+  if (raw && raw.startsWith('wrap:')) {
+    const targetId = raw.slice(5);
+    if (dragState.source === 'palette') {
+      ops.wrapBlockWithNew(targetId, dragState.blockType);
+    } else if (dragState.source === 'workspace') {
+      ops.wrapBlockWithExisting(targetId, dragState.blockId);
+    }
   // Handle expression-param slot drops
-  if (raw && raw.startsWith('expr:')) {
+  } else if (raw && raw.startsWith('expr:')) {
     const rest = raw.slice(5); // strip "expr:"
     const colonIdx = rest.indexOf(':');
     const parentId = rest.slice(0, colonIdx);
@@ -152,6 +160,16 @@ function cleanupGhost() {
 
 export function highlightDropTargets(x, y) {
   clearDropHighlights();
+  const target = findDropTarget(x, y);
+  if (!target) return;
+
+  if (target.startsWith('wrap:')) {
+    const blockId = target.slice(5);
+    const blockEl = document.querySelector(`.block[data-block-id="${blockId}"]`);
+    if (blockEl) blockEl.classList.add('block--wrap-target');
+    return;
+  }
+
   const els = document.elementsFromPoint(x, y);
   for (const el of els) {
     if (el.classList.contains('drop-zone')) {
@@ -172,18 +190,42 @@ export function clearDropHighlights() {
   for (const el of document.querySelectorAll('.expr-slot--active')) {
     el.classList.remove('expr-slot--active');
   }
+  for (const el of document.querySelectorAll('.block--wrap-target')) {
+    el.classList.remove('block--wrap-target');
+  }
 }
 
 export function findDropTarget(x, y) {
   const els = document.elementsFromPoint(x, y);
+  // First pass: drop zones and expr slots take priority
   for (const el of els) {
     if (el.classList.contains('drop-zone') && el.dataset.dropTarget) {
       return el.dataset.dropTarget;
     }
-    // Expression-capable param slots: "expr:blockId:paramName"
     if (el.classList.contains('expr-slot') && el.dataset.exprTarget) {
       return 'expr:' + el.dataset.exprTarget;
     }
   }
+  // Second pass: check for block elements (wrap target)
+  if (dragState && canAcceptChildren(dragState.blockType)) {
+    for (const el of els) {
+      const blockEl = el.closest('.block[data-block-id]');
+      if (blockEl && blockEl.dataset.blockId) {
+        const targetId = blockEl.dataset.blockId;
+        // Don't wrap yourself or your own descendants
+        if (dragState.source === 'workspace') {
+          if (targetId === dragState.blockId) continue;
+          const draggedEl = document.querySelector(`.block[data-block-id="${dragState.blockId}"]`);
+          if (draggedEl && draggedEl.contains(blockEl)) continue;
+        }
+        return 'wrap:' + targetId;
+      }
+    }
+  }
   return null;
+}
+
+function canAcceptChildren(blockType) {
+  const def = ops.getBlockDef(blockType);
+  return def && def.maxChildren > 0;
 }
