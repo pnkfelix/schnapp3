@@ -1,4 +1,4 @@
-import { initDragDrop, onPaletteDragStart, onBlockDragStart } from './ui/drag-drop.js';
+import { initDragDrop, onPaletteDragStart, onBlockDragStart, startPaletteDrag, DRAG_THRESHOLD } from './ui/drag-drop.js';
 
 // ---- Block type definitions ----
 
@@ -678,21 +678,9 @@ function onSelectorPointerDown(e) {
       moved = true;
       // Hand off to the normal palette drag system
       cleanup();
-      // Synthesize a palette drag from this element
-      dragState = {
-        source: 'palette',
-        blockType: target.dataset.blockType,
-        startX,
-        startY,
-        ghost: null,
-        dragging: false,
-        pointerId: e.pointerId
-      };
-      document.addEventListener('pointermove', onDragMove);
-      document.addEventListener('pointerup', onDragEnd);
-      document.addEventListener('pointercancel', onDragCancel);
+      const dragMove = startPaletteDrag(target.dataset.blockType, startX, startY, e.pointerId);
       // Trigger the first move to create the ghost
-      onDragMove(ev);
+      dragMove(ev);
     }
   }
 

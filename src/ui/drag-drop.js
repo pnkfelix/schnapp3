@@ -1,7 +1,7 @@
 // Drag and drop system for block editor.
 // Handles palette drags (creating new blocks) and workspace drags (moving blocks).
 
-const DRAG_THRESHOLD = 8;
+export const DRAG_THRESHOLD = 8;
 let dragState = null;
 
 // Block operations — set via initDragDrop()
@@ -14,18 +14,25 @@ export function initDragDrop(blockOps) {
 export function onPaletteDragStart(e) {
   e.preventDefault();
   const type = e.currentTarget.dataset.blockType;
+  startPaletteDrag(type, e.clientX, e.clientY, e.pointerId);
+}
+
+// Start a palette drag programmatically (used by selector row handoff).
+// Returns the onDragMove handler so the caller can fire an initial move event.
+export function startPaletteDrag(blockType, startX, startY, pointerId) {
   dragState = {
     source: 'palette',
-    blockType: type,
-    startX: e.clientX,
-    startY: e.clientY,
+    blockType,
+    startX,
+    startY,
     ghost: null,
     dragging: false,
-    pointerId: e.pointerId
+    pointerId
   };
   document.addEventListener('pointermove', onDragMove);
   document.addEventListener('pointerup', onDragEnd);
   document.addEventListener('pointercancel', onDragCancel);
+  return onDragMove;
 }
 
 export function onBlockDragStart(e) {
