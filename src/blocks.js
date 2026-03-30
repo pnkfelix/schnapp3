@@ -719,47 +719,56 @@ function onSelectorPointerDown(e) {
   document.addEventListener('pointercancel', cleanup);
 }
 
+function createSelectorItem(type, catId) {
+  const def = BLOCK_DEFS[type];
+  const item = document.createElement('div');
+  item.className = `palette-item palette-item--${type}`;
+  if (catId === activeCategory) item.classList.add('palette-item--selected');
+  item.textContent = def.label;
+  item.dataset.blockType = type;
+  item.dataset.categoryId = catId;
+  item.addEventListener('pointerdown', onSelectorPointerDown);
+  return item;
+}
+
 function renderSelectorRow() {
   const row = document.getElementById('palette-selector');
   if (!row) return;
 
-  // Measure available width before clearing
+  const gap = 10; // matches CSS gap
   const rowWidth = row.clientWidth || row.parentElement?.clientWidth || 300;
-  const gap = 10;
-  const avgItemWidth = 80; // rough estimate: min-width 44 + padding 28 + text
-  const maxSlots = Math.max(CATEGORY_IDS.length, Math.floor((rowWidth + gap) / (avgItemWidth + gap)));
 
-  // Build item list: guaranteed one representative per category first
-  const items = [];
-  const shown = new Set();
+  // 1. Render guaranteed category representatives
+  row.innerHTML = '';
+  const repElements = [];
   for (const catId of CATEGORY_IDS) {
     const repType = categoryRepresentative[catId];
-    items.push({ type: repType, catId });
-    shown.add(repType);
+    const item = createSelectorItem(repType, catId);
+    row.appendChild(item);
+    repElements.push(item);
   }
 
-  // Fill remaining slots with most recently used blocks
+  // 2. Measure how much space the representatives use
+  const shown = new Set(CATEGORY_IDS.map(c => categoryRepresentative[c]));
+  let usedWidth = repElements.reduce((sum, el) => sum + el.offsetWidth, 0)
+    + gap * (repElements.length - 1);
+
+  // 3. Append MRU items while they fit in the visible area
   for (const mruType of mruList) {
-    if (items.length >= maxSlots) break;
     if (shown.has(mruType)) continue;
     const def = BLOCK_DEFS[mruType];
     if (!def) continue;
-    items.push({ type: mruType, catId: def.category });
-    shown.add(mruType);
-  }
 
-  // Render
-  row.innerHTML = '';
-  for (const { type, catId } of items) {
-    const def = BLOCK_DEFS[type];
-    const item = document.createElement('div');
-    item.className = `palette-item palette-item--${type}`;
-    if (catId === activeCategory) item.classList.add('palette-item--selected');
-    item.textContent = def.label;
-    item.dataset.blockType = type;
-    item.dataset.categoryId = catId;
-    item.addEventListener('pointerdown', onSelectorPointerDown);
+    const item = createSelectorItem(mruType, def.category);
     row.appendChild(item);
+    const itemWidth = item.offsetWidth;
+
+    if (usedWidth + gap + itemWidth > rowWidth) {
+      row.removeChild(item);
+      break;
+    }
+    usedWidth += gap + itemWidth;
+    shown.add(mruType);
   }
 }
 
