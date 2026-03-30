@@ -1,4 +1,4 @@
-import { initDragDrop, onPaletteDragStart, onBlockDragStart, startPaletteDrag } from './ui/drag-drop.js';
+import { initDragDrop, onPaletteDragStart, onBlockDragStart, startPaletteDrag, DRAG_THRESHOLD } from './ui/drag-drop.js';
 
 // ---- Block type definitions ----
 

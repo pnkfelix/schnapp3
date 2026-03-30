@@ -1,7 +1,7 @@
 // Drag and drop system for block editor.
 // Handles palette drags (creating new blocks) and workspace drags (moving blocks).
 
-const DRAG_THRESHOLD = 8;
+export const DRAG_THRESHOLD = 8;
 let dragState = null;
 
 // Block operations — set via initDragDrop()
