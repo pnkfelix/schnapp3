@@ -623,6 +623,9 @@ const categoryRepresentative = {
   binding: 'let',
 };
 
+// Global MRU list — tracks all recently used block types, most recent first.
+const mruList = [];
+
 // ---- Palette rendering ----
 
 let paletteEl, workspaceEl;
@@ -652,13 +655,23 @@ export function initPalette(el) {
   itemsRow.id = 'palette-items';
   paletteEl.appendChild(itemsRow);
 
-  // Bottom row: one draggable representative block per category
+  // Bottom row: category representatives + MRU blocks
   const selectorRow = document.createElement('div');
   selectorRow.id = 'palette-selector';
   paletteEl.appendChild(selectorRow);
 
   renderSelectorRow();
   renderPaletteItems();
+
+  // Re-render selector row on resize so slot count adapts to available width
+  let lastSelectorWidth = 0;
+  new ResizeObserver((entries) => {
+    const w = entries[0].contentRect.width;
+    if (Math.abs(w - lastSelectorWidth) > 20) {
+      lastSelectorWidth = w;
+      renderSelectorRow();
+    }
+  }).observe(selectorRow);
 }
 
 // Selector row items: drag → create block, tap → switch category
@@ -706,31 +719,71 @@ function onSelectorPointerDown(e) {
   document.addEventListener('pointercancel', cleanup);
 }
 
+function createSelectorItem(type, catId) {
+  const def = BLOCK_DEFS[type];
+  const item = document.createElement('div');
+  item.className = `palette-item palette-item--${type}`;
+  if (catId === activeCategory) item.classList.add('palette-item--selected');
+  item.textContent = def.label;
+  item.dataset.blockType = type;
+  item.dataset.categoryId = catId;
+  item.addEventListener('pointerdown', onSelectorPointerDown);
+  return item;
+}
+
 function renderSelectorRow() {
   const row = document.getElementById('palette-selector');
   if (!row) return;
+
+  const gap = 10; // matches CSS gap
+  const rowWidth = row.clientWidth || row.parentElement?.clientWidth || 300;
+
+  // 1. Render guaranteed category representatives
   row.innerHTML = '';
+  const repElements = [];
   for (const catId of CATEGORY_IDS) {
     const repType = categoryRepresentative[catId];
-    const rep = BLOCK_DEFS[repType];
-    const item = document.createElement('div');
-    item.className = `palette-item palette-item--${repType}`;
-    if (catId === activeCategory) item.classList.add('palette-item--selected');
-    item.textContent = rep.label;
-    item.dataset.blockType = repType;
-    item.dataset.categoryId = catId;
-    item.addEventListener('pointerdown', onSelectorPointerDown);
+    const item = createSelectorItem(repType, catId);
     row.appendChild(item);
+    repElements.push(item);
+  }
+
+  // 2. Measure how much space the representatives use
+  const shown = new Set(CATEGORY_IDS.map(c => categoryRepresentative[c]));
+  let usedWidth = repElements.reduce((sum, el) => sum + el.offsetWidth, 0)
+    + gap * (repElements.length - 1);
+
+  // 3. Append MRU items while they fit in the visible area
+  for (const mruType of mruList) {
+    if (shown.has(mruType)) continue;
+    const def = BLOCK_DEFS[mruType];
+    if (!def) continue;
+
+    const item = createSelectorItem(mruType, def.category);
+    row.appendChild(item);
+    const itemWidth = item.offsetWidth;
+
+    if (usedWidth + gap + itemWidth > rowWidth) {
+      row.removeChild(item);
+      break;
+    }
+    usedWidth += gap + itemWidth;
+    shown.add(mruType);
   }
 }
 
-// Update the representative for a category to the most recently used block type.
+// Update the representative for a category and global MRU list.
 function markBlockUsed(blockType) {
   const def = BLOCK_DEFS[blockType];
   if (!def) return;
   const catId = def.category;
-  if (categoryRepresentative[catId] === blockType) return; // already the rep
   categoryRepresentative[catId] = blockType;
+
+  // Update global MRU: move to front
+  const idx = mruList.indexOf(blockType);
+  if (idx !== -1) mruList.splice(idx, 1);
+  mruList.unshift(blockType);
+
   renderSelectorRow();
 }
 
