@@ -1,7 +1,6 @@
-// AST expansion pass: resolve let/var, grow, stir/enzyme/tags
+// Chemical evaluator: resolve let/var, grow, stir/enzyme/tags into core geometry AST.
 //
-// Runs before evaluation. Expands PL constructs into the core geometry AST
-// that the evaluator already knows how to handle.
+// Pipeline: blocks → codegen → chemical eval (this file) → geometry eval (evaluator.js)
 //
 // The key abstraction: stir is the application mechanism. A stir bag contains
 // enzymes, tagged values, and bare values. Reactions fire by matching enzyme
@@ -12,6 +11,13 @@
 //   (cube 20)   → tags: {"shape"}
 // The (tags ("radius") EXPR) form adds tags to whatever EXPR produces:
 //   (tags ("radius") 3) → tags: {"radius", "scalar"}
+//
+// Lazy defaults: enzymes can declare default expressions for their wants via
+// a `defaults` map in the params object. Wants with defaults are "optional" —
+// pool values take priority, but if no match is found, the default is used.
+// Defaults are NOT eagerly applied: an enzyme with defaulted wants becomes a
+// "thunk" at stir fixpoint, and is only forced when it reaches a forcing
+// context (primitive params, CSG children) or the expandAST boundary.
 
 // ---- Expression contexts ----
 //
@@ -50,12 +56,80 @@ const EXPR_CONTEXTS = {
 // Parameterless containers: children start at index 1, no params object
 const BARE_CONTAINERS = new Set(['union', 'intersect', 'anti', 'complement']);
 
+// Forcing containers: children must be concrete geometry for CSG operations.
+// Non-forcing containers (union) pass thunks through without forcing.
+const FORCING_CONTAINERS = new Set(['intersect', 'anti', 'complement']);
+
+// ---- Thunk helpers ----
+// A thunk is an enzyme whose remaining unsatisfied wants all have defaults.
+// It is inert in pools (zero wants) and gets forced when it reaches a
+// forcing context or the expandAST boundary.
+//
+// Shape: { __thunk: true, enzyme: { __enzyme, node, env }, defaults: Map, tags?: [] }
+
+function forceThunk(thunk) {
+  const enz = thunk.enzyme;
+  const bodyEnv = new Map(enz.env);
+  for (const [tagName, defaultExpr] of thunk.defaults) {
+    bodyEnv.set(tagName, expandNode(defaultExpr, enz.env));
+  }
+  const body = enz.node.length > 2 ? enz.node[2] : ['union'];
+  return expandNode(body, bodyEnv);
+}
+
+function forceIfThunk(value) {
+  let v = value;
+  let depth = 0;
+  while (v && v.__thunk && depth < 20) {
+    v = forceThunk(v);
+    depth++;
+  }
+  return v;
+}
+
+// Recursive AST walk: force any surviving thunks or all-defaulted enzymes.
+// Called at the expandAST boundary to ensure the geometry evaluator never sees thunks.
+function forceAllThunks(node) {
+  if (!node) return node;
+  if (node.__thunk) {
+    return forceAllThunks(forceThunk(node));
+  }
+  if (node.__enzyme) {
+    const tagNames = (node.node[1].tags || '').trim().split(/\s+/).filter(Boolean);
+    const defaults = node.node[1].defaults || {};
+    const allDefaulted = tagNames.length > 0 && tagNames.every(t => t in defaults);
+    if (allDefaulted) {
+      const thunk = { __thunk: true, enzyme: node, defaults: new Map(Object.entries(defaults)) };
+      return forceAllThunks(forceThunk(thunk));
+    }
+    // Enzyme with non-defaulted unsatisfied wants — pass through (unforceable)
+    return node;
+  }
+  if (node.__bundle) {
+    return { ...node, items: node.items.map(forceAllThunks) };
+  }
+  if (!Array.isArray(node)) return node;
+  return node.map((child, i) => {
+    if (i === 0) return child; // type tag
+    if (i === 1 && typeof child === 'object' && !Array.isArray(child)) {
+      // params object — force any thunks in expression param values
+      const forced = {};
+      for (const [k, v] of Object.entries(child)) {
+        forced[k] = (v && v.__thunk) ? forceAllThunks(forceThunk(v)) : v;
+      }
+      return forced;
+    }
+    return forceAllThunks(child);
+  });
+}
+
 // ---- Implicit type tags ----
 
 function implicitTags(node) {
   if (!Array.isArray(node)) {
     if (typeof node === 'number') return new Set(['scalar']);
     if (typeof node === 'string') return new Set(['scalar']);
+    if (node && node.__thunk) return new Set(['shape']);
     return new Set();
   }
   const type = node[0];
@@ -73,7 +147,7 @@ function implicitTags(node) {
 // Read the explicit tags on a value.
 function getValueTags(v) {
   if (!v) return [];
-  if (v.__enzyme || v.__bundle) return v.tags || [];
+  if (v.__enzyme || v.__bundle || v.__thunk) return v.tags || [];
   if (Array.isArray(v)) {
     const params = v[1];
     if (params && typeof params === 'object' && !Array.isArray(params)) {
@@ -94,6 +168,11 @@ function addTagToValue(v, tagName) {
   }
   // Bundle
   if (v.__bundle) {
+    const tags = v.tags ? [...v.tags, tagName] : [tagName];
+    return { ...v, tags };
+  }
+  // Thunk
+  if (v.__thunk) {
     const tags = v.tags ? [...v.tags, tagName] : [tagName];
     return { ...v, tags };
   }
@@ -119,7 +198,7 @@ function addTagToValue(v, tagName) {
 function stripOneTag(v, tagName) {
   if (v === null || v === undefined) return v;
 
-  if (v.__enzyme || v.__bundle) {
+  if (v.__enzyme || v.__bundle || v.__thunk) {
     if (!v.tags) return v;
     const tags = v.tags.filter(t => t !== tagName);
     return { ...v, tags: tags.length ? tags : undefined };
@@ -167,7 +246,8 @@ function stripTags(v) {
 export function expandAST(ast, env) {
   if (!ast) return ast;
   if (!env) env = new Map();
-  return expandNode(ast, env);
+  const result = expandNode(ast, env);
+  return forceAllThunks(result);
 }
 
 function expandNode(node, env) {
@@ -273,9 +353,11 @@ function expandNode(node, env) {
         const hasParams = node[1] && typeof node[1] === 'object' && !Array.isArray(node[1]);
         const params = hasParams ? node[1] : null;
         const children = hasParams ? node.slice(2) : node.slice(1);
+        const forcing = FORCING_CONTAINERS.has(type);
         const expanded = [];
         for (const child of children) {
-          const e = expandNode(child, env);
+          let e = expandNode(child, env);
+          if (forcing) e = forceIfThunk(e);
           if (e !== null) expanded.push(e);
         }
         const result = params ? [type, params, ...expanded] : [type, ...expanded];
@@ -318,8 +400,10 @@ function expandWithContext(node, env, ctx) {
   // reach inside params objects to clean them up.
   const expandedParams = {};
   for (const [key, val] of Object.entries(params)) {
-    if (exprSet.has(key) && Array.isArray(val)) {
-      expandedParams[key] = stripTags(expandNode(val, env));
+    if (exprSet.has(key)) {
+      let resolved = Array.isArray(val) ? expandNode(val, env) : val;
+      resolved = forceIfThunk(resolved);
+      expandedParams[key] = stripTags(resolved);
     } else {
       expandedParams[key] = val;
     }
@@ -426,9 +510,23 @@ function runStirPool(pool) {
           if (!partial.has(tagName)) remainingTags.push(tagName);
         }
 
+        // Propagate defaults for remaining (unsatisfied) wants only
+        const remainingDefaults = {};
+        if (consumer.defaults) {
+          for (const tagName of remainingTags) {
+            if (consumer.defaults.has(tagName)) {
+              remainingDefaults[tagName] = consumer.defaults.get(tagName);
+            }
+          }
+        }
+        const newParams = { tags: remainingTags.join(' ') };
+        if (Object.keys(remainingDefaults).length > 0) {
+          newParams.defaults = remainingDefaults;
+        }
+
         const newNode = [
           'enzyme',
-          { tags: remainingTags.join(' ') },
+          newParams,
           ...(enz.node.length > 2 ? [enz.node[2]] : [])
         ];
         const partialEnzyme = { __enzyme: true, node: newNode, env: newEnv };
@@ -446,6 +544,36 @@ function runStirPool(pool) {
         reactions++;
         break; // restart matching
       }
+    }
+  }
+
+  // Phase C: Thunk crystallization — convert enzymes whose remaining wants
+  // are ALL defaulted into thunks (inert values awaiting forcing).
+  for (let i = 0; i < pool.length; i++) {
+    const item = pool[i];
+    if (!item || !item.value || !item.value.__enzyme) continue;
+    if (item.wants.size === 0) continue;
+    // Check if every remaining want has a default
+    let allDefaulted = true;
+    for (const tagName of item.wants) {
+      if (!item.defaults || !item.defaults.has(tagName)) {
+        allDefaulted = false;
+        break;
+      }
+    }
+    if (allDefaulted) {
+      // Crystallize into a thunk
+      const thunkDefaults = new Map();
+      for (const tagName of item.wants) {
+        thunkDefaults.set(tagName, item.defaults.get(tagName));
+      }
+      const thunk = {
+        __thunk: true,
+        enzyme: item.value,
+        defaults: thunkDefaults,
+        tags: item.value.tags   // preserve explicit tags
+      };
+      pool[i] = { carries: item.carries, wants: new Set(), value: thunk, defaults: new Map() };
     }
   }
 
@@ -476,25 +604,35 @@ function addToPool(expanded, pool, extraTags) {
     return;
   }
 
-  let carries, wants;
+  let carries, wants, defaults;
   if (expanded && expanded.__enzyme) {
     const tagNames = (expanded.node[1].tags || '').trim().split(/\s+/).filter(Boolean);
     carries = new Set(['block']);
     wants = new Set(tagNames);
+    // Extract defaults from enzyme node params
+    const rawDefaults = expanded.node[1].defaults || {};
+    defaults = new Map(Object.entries(rawDefaults));
     // Enzyme closures can also carry explicit tags (from currying or tagging)
     if (expanded.tags) {
       for (const t of expanded.tags) carries.add(t);
     }
+  } else if (expanded && expanded.__thunk) {
+    // Thunks are inert — zero wants, carry shape + explicit tags
+    carries = new Set(['shape']);
+    for (const t of getValueTags(expanded)) carries.add(t);
+    wants = new Set();
+    defaults = new Map();
   } else {
     carries = implicitTags(expanded);
     // Read explicit tags from the value's _tags field
     for (const t of getValueTags(expanded)) carries.add(t);
     wants = new Set();
+    defaults = new Map();
   }
   if (extraTags) {
     for (const t of extraTags) carries.add(t);
   }
-  pool.push({ carries, wants, value: expanded });
+  pool.push({ carries, wants, value: expanded, defaults });
 }
 
 // Match a set of wanted tags against pool items' carries.
