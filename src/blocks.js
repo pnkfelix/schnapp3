@@ -551,8 +551,8 @@ export function promoteChildren(blockId) {
     const parent = allBlocks.get(block.parent);
     const parentDef = BLOCK_DEFS[parent.type];
 
-    // Don't promote in labeled-slot parents
-    if (parent.type === 'let' || parent.type === 'grow') return;
+    // Don't promote in labeled-slot parents unless exactly one child (swap in place)
+    if ((parent.type === 'let' || parent.type === 'grow') && children.length > 1) return;
 
     // Check capacity
     if (parentDef.maxChildren !== Infinity) {
@@ -565,7 +565,13 @@ export function promoteChildren(blockId) {
     for (const child of children) {
       child.parent = block.parent;
     }
-    parent.children.splice(idx, 0, ...children);
+    // For labeled-slot parents, replace the block with its single child in-place
+    const isLabeledSlot = parent.type === 'let' || parent.type === 'grow';
+    if (isLabeledSlot) {
+      parent.children.splice(idx, 1, ...children);
+    } else {
+      parent.children.splice(idx, 0, ...children);
+    }
   } else {
     const idx = rootBlocks.indexOf(block);
     block.children = [];
@@ -945,9 +951,9 @@ function renderBlock(block) {
       const parent = allBlocks.get(block.parent);
       const parentDef = BLOCK_DEFS[parent.type];
       const isLabeledSlot = parent.type === 'let' || parent.type === 'grow';
-      if (isLabeledSlot) {
+      if (isLabeledSlot && block.children.length > 1) {
         disabled = true;
-        tooltip = 'Cannot promote: parent has labeled slots';
+        tooltip = 'Cannot promote: too many children for labeled slot';
       } else if (parentDef.maxChildren !== Infinity) {
         const newCount = parent.children.length - 1 + block.children.length;
         if (newCount > parentDef.maxChildren) {
