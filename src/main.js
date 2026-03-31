@@ -381,10 +381,19 @@ initCommandBar(Object.keys(DEFAULT_MODELS), {
 
 // Load saved model or default
 // ?reset in the URL bypasses localStorage (escape hatch for crash loops)
+// Crash guard: if previous load crashed (flag still set), skip saved model
 const params = new URLSearchParams(window.location.search);
 const safeMode = params.has('reset');
 if (safeMode) {
   try { localStorage.removeItem('schnapp3_model'); } catch (e) {}
 }
-const saved = safeMode ? null : (() => { try { return localStorage.getItem('schnapp3_model'); } catch (e) { return null; } })();
+const previousCrash = (() => { try { return localStorage.getItem('schnapp3_loading') === 'true'; } catch (e) { return false; } })();
+if (previousCrash) {
+  try { localStorage.removeItem('schnapp3_loading'); } catch (e) {}
+  try { localStorage.removeItem('schnapp3_model'); } catch (e) {}
+  console.warn('Schnapp3: previous load crashed, loading default model');
+}
+const saved = (safeMode || previousCrash) ? null : (() => { try { return localStorage.getItem('schnapp3_model'); } catch (e) { return null; } })();
+try { localStorage.setItem('schnapp3_loading', 'true'); } catch (e) {}
 loadModel(saved || DEFAULT_MODELS[DEFAULT_MODEL_NAME]);
+try { localStorage.removeItem('schnapp3_loading'); } catch (e) {}
