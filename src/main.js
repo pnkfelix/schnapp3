@@ -380,5 +380,11 @@ initCommandBar(Object.keys(DEFAULT_MODELS), {
 });
 
 // Load saved model or default
-const saved = (() => { try { return localStorage.getItem('schnapp3_model'); } catch (e) { return null; } })();
+// ?reset in the URL bypasses localStorage (escape hatch for crash loops)
+const params = new URLSearchParams(window.location.search);
+const safeMode = params.has('reset');
+if (safeMode) {
+  try { localStorage.removeItem('schnapp3_model'); } catch (e) {}
+}
+const saved = safeMode ? null : (() => { try { return localStorage.getItem('schnapp3_model'); } catch (e) { return null; } })();
 loadModel(saved || DEFAULT_MODELS[DEFAULT_MODEL_NAME]);
