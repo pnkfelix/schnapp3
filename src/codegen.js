@@ -17,13 +17,38 @@ export function generateAST(rootBlocks) {
 function blockToAST(block) {
   const def = BLOCK_DEFS[block.type];
   const params = {};
-  for (const p of def.params) {
-    // If this param has a block in an expr slot, emit its AST instead of the literal
-    const exprBlock = block.exprSlots && block.exprSlots[p.name];
-    if (exprBlock) {
-      params[p.name] = blockToAST(exprBlock);
-    } else {
-      params[p.name] = block.params[p.name];
+
+  // Enzyme blocks: convert tagRows to tags string + defaults map
+  if (block.type === 'enzyme') {
+    const rows = block.params.tagRows || [];
+    const tagNames = [];
+    const defaults = {};
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row.tag) continue; // skip empty rows
+      tagNames.push(row.tag);
+      // Check for expr-slot block in default position
+      const exprBlock = block.exprSlots && block.exprSlots['tagRow_' + i];
+      if (exprBlock) {
+        defaults[row.tag] = blockToAST(exprBlock);
+      } else if (row.default !== '') {
+        const num = parseFloat(row.default);
+        defaults[row.tag] = isNaN(num) ? row.default : num;
+      }
+    }
+    params.tags = tagNames.join(' ');
+    if (Object.keys(defaults).length > 0) {
+      params.defaults = defaults;
+    }
+  } else {
+    for (const p of def.params) {
+      // If this param has a block in an expr slot, emit its AST instead of the literal
+      const exprBlock = block.exprSlots && block.exprSlots[p.name];
+      if (exprBlock) {
+        params[p.name] = blockToAST(exprBlock);
+      } else {
+        params[p.name] = block.params[p.name];
+      }
     }
   }
 
@@ -256,12 +281,19 @@ function formatNode(node, indent) {
       const p = node[1];
       const tagList = (p.tags || '').trim().split(/\s+/).filter(Boolean);
       const tagsStr = tagList.map(t => `"${t}"`).join(' ');
+      let defaultsStr = '';
+      if (p.defaults && Object.keys(p.defaults).length > 0) {
+        const pairs = Object.entries(p.defaults).map(([k, v]) =>
+          `("${k}" ${fmtParam(v)})`
+        ).join(' ');
+        defaultsStr = ` :defaults (${pairs})`;
+      }
       const children = node.slice(2);
       if (children.length === 0) {
-        return `${pad}(enzyme :tags (${tagsStr}))`;
+        return `${pad}(enzyme :tags (${tagsStr})${defaultsStr})`;
       }
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
-      return `${pad}(enzyme :tags (${tagsStr})\n${childStrs})`;
+      return `${pad}(enzyme :tags (${tagsStr})${defaultsStr}\n${childStrs})`;
     }
     case 'tags': {
       const p = node[1];

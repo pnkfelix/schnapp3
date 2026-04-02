@@ -83,6 +83,9 @@ export function parseSExpr(text) {
       } else if (kw === 'tags') {
         // :tags takes a parenthesized list of strings
         args[kw] = parseStringList();
+      } else if (kw === 'defaults') {
+        // :defaults takes a parenthesized list of (name value) pairs
+        args[kw] = parseDefaultsList();
       }
     }
     return args;
@@ -280,9 +283,13 @@ export function parseSExpr(text) {
     const kw = parseKeywordArgs();
     // :tags is parsed as a parenthesized list of strings
     const tagList = kw.tags || [];
+    const params = { tags: tagList.join(' ') };
+    if (kw.defaults && Object.keys(kw.defaults).length > 0) {
+      params.defaults = kw.defaults;
+    }
     const children = parseChildren();
     next(); // )
-    return ['enzyme', { tags: tagList.join(' ') }, ...children];
+    return ['enzyme', params, ...children];
   }
 
   function parseTags() {
@@ -312,6 +319,24 @@ export function parseSExpr(text) {
     const value = parseNumber();
     next(); // )
     return ['scalar', { value }];
+  }
+
+  // Parse a parenthesized list of (name value) pairs: (("x" 5) ("y" (scalar 0)))
+  // Returns an object mapping name → value (number or AST expression).
+  function parseDefaultsList() {
+    const defaults = {};
+    if (peek() === '(') {
+      next(); // consume outer (
+      while (peek() === '(') {
+        next(); // consume inner (
+        const name = parseStringOrIdent();
+        const value = parseNumber(); // handles both literals and sub-expressions
+        if (peek() === ')') next(); // consume inner )
+        if (name) defaults[name] = value;
+      }
+      if (peek() === ')') next(); // consume outer )
+    }
+    return defaults;
   }
 
   // Parse a parenthesized list of strings: ("a" "b" "c")

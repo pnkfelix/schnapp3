@@ -79,7 +79,10 @@ function evalNode(node) {
       }
       return group.children.length ? group : null;
     }
-    return null; // skip enzyme closures, etc.
+    if (node && node.__thunk) {
+      console.warn('Thunk reached geometry evaluator — should have been forced');
+    }
+    return null; // skip enzyme closures, thunks, etc.
   }
   if (evalStats) evalStats.nodes++;
   const type = node[0];

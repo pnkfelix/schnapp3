@@ -212,7 +212,7 @@ export const BLOCK_DEFS = {
     label: 'Enzyme',
     category: 'binding',
     params: [
-      { name: 'tags', type: 'text', default: 'x' }    // space-separated tag names to bind from stir
+      { name: 'tagRows', type: 'tagRows' }   // dynamic list of {tag, default} pairs
     ],
     maxChildren: 1   // body — may use (var "tagname") to reference matched values
   },
@@ -269,7 +269,15 @@ function createBlock(type) {
   const def = BLOCK_DEFS[type];
   const params = {};
   for (const p of def.params) {
-    params[p.name] = p.default;
+    if (p.type === 'tagRows') {
+      // Initialize with one filled row + one empty row
+      params[p.name] = [
+        { tag: 'x', default: '' },
+        { tag: '', default: '' }
+      ];
+    } else {
+      params[p.name] = p.default;
+    }
   }
   const block = {
     id: 'block_' + (nextId++),
@@ -431,22 +439,50 @@ export function replaceFromAST(ast) {
 
     // Fill params with defaults first
     for (const p of def.params) {
-      block.params[p.name] = p.default;
+      if (p.type === 'tagRows') {
+        block.params[p.name] = [{ tag: '', default: '' }];
+      } else {
+        block.params[p.name] = p.default;
+      }
     }
 
     // Override from AST — copy matching param values from node[1] if present
     if (node[1] && typeof node[1] === 'object' && !Array.isArray(node[1])) {
-      const p = node[1];
-      for (const param of def.params) {
-        if (p[param.name] != null) {
-          // If the param value is an AST array (expression), build it as an expr-slot block
-          if (Array.isArray(p[param.name]) && param.type === 'number') {
-            const exprChild = buildBlock(p[param.name], block.id);
+      const astParams = node[1];
+
+      // Enzyme blocks: reconstruct tagRows from tags string + defaults map
+      if (type === 'enzyme' && astParams.tags != null) {
+        const tagNames = (astParams.tags || '').trim().split(/\s+/).filter(Boolean);
+        const defaults = astParams.defaults || {};
+        const rows = [];
+        for (let i = 0; i < tagNames.length; i++) {
+          const tag = tagNames[i];
+          const defVal = defaults[tag];
+          if (defVal != null && Array.isArray(defVal)) {
+            // Expression default — build as expr-slot block
+            const exprChild = buildBlock(defVal, block.id);
             if (exprChild) {
-              block.exprSlots[param.name] = exprChild;
+              block.exprSlots['tagRow_' + i] = exprChild;
             }
+            rows.push({ tag, default: '' });
           } else {
-            block.params[param.name] = p[param.name];
+            rows.push({ tag, default: defVal != null ? String(defVal) : '' });
+          }
+        }
+        rows.push({ tag: '', default: '' }); // trailing empty row
+        block.params.tagRows = rows;
+      } else {
+        for (const param of def.params) {
+          if (astParams[param.name] != null) {
+            // If the param value is an AST array (expression), build it as an expr-slot block
+            if (Array.isArray(astParams[param.name]) && param.type === 'number') {
+              const exprChild = buildBlock(astParams[param.name], block.id);
+              if (exprChild) {
+                block.exprSlots[param.name] = exprChild;
+              }
+            } else {
+              block.params[param.name] = astParams[param.name];
+            }
           }
         }
       }
@@ -907,6 +943,56 @@ function createParamInput(p, block) {
     input.dataset.paramName = p.name;
     input.placeholder = p.name;
     lbl.appendChild(input);
+  } else if (p.type === 'tagRows') {
+    // Dynamic list of tag/default rows for enzyme blocks
+    const rows = block.params[p.name] || [];
+    const container = document.createElement('div');
+    container.className = 'tag-rows';
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const isEmpty = !row.tag && !row.default;
+      const rowEl = document.createElement('div');
+      rowEl.className = 'tag-row' + (isEmpty ? ' tag-row--empty' : '');
+
+      const tagInput = document.createElement('input');
+      tagInput.type = 'text';
+      tagInput.value = row.tag;
+      tagInput.placeholder = 'tag';
+      tagInput.dataset.blockId = block.id;
+      tagInput.dataset.paramName = 'tagRows';
+      tagInput.dataset.rowIndex = i;
+      tagInput.dataset.rowField = 'tag';
+      tagInput.className = 'tag-row__tag';
+      rowEl.appendChild(tagInput);
+
+      // Default value: expr-slot (accepts dropped blocks or typed number)
+      const exprBlock = block.exprSlots['tagRow_' + i];
+      if (exprBlock) {
+        const exprEl = renderBlock(exprBlock);
+        exprEl.classList.add('expr-slot__block');
+        rowEl.appendChild(exprEl);
+      } else {
+        const wrapper = document.createElement('span');
+        wrapper.className = 'expr-slot';
+        wrapper.dataset.exprTarget = block.id + ':tagRow_' + i;
+        const defInput = document.createElement('input');
+        defInput.type = 'text';
+        defInput.value = row.default;
+        defInput.placeholder = '=';
+        defInput.dataset.blockId = block.id;
+        defInput.dataset.paramName = 'tagRows';
+        defInput.dataset.rowIndex = i;
+        defInput.dataset.rowField = 'default';
+        defInput.className = 'tag-row__default';
+        wrapper.appendChild(defInput);
+        rowEl.appendChild(wrapper);
+      }
+
+      container.appendChild(rowEl);
+    }
+    lbl.textContent = ''; // clear the label span — tag-rows renders its own structure
+    lbl.appendChild(container);
+    return lbl;
   } else if (p.type === 'color') {
     const select = document.createElement('select');
     select.dataset.blockId = block.id;
@@ -932,7 +1018,7 @@ function renderBlock(block) {
   // Inline single scalar param into header to save vertical space.
   // Revisit when params can accept reporter blocks — a nested block
   // won't fit inline and the slot will need to expand to a full row.
-  const inlineParam = def.params.length === 1;
+  const inlineParam = def.params.length === 1 && def.params[0].type !== 'tagRows';
 
   // Header
   const header = document.createElement('div');
@@ -1072,6 +1158,23 @@ function renderBlock(block) {
 function onParamInput(e) {
   const target = e.target;
   if (target.tagName === 'INPUT' && target.dataset.blockId) {
+    // Tag-row inputs for enzyme blocks
+    if (target.dataset.rowIndex != null) {
+      const block = allBlocks.get(target.dataset.blockId);
+      if (!block) return;
+      const rows = block.params.tagRows;
+      const idx = parseInt(target.dataset.rowIndex);
+      const field = target.dataset.rowField;
+      if (rows[idx]) {
+        rows[idx][field] = target.value;
+        // Auto-grow: if user typed into the last row's tag field, add a new empty row
+        if (field === 'tag' && target.value && idx === rows.length - 1) {
+          rows.push({ tag: '', default: '' });
+        }
+        notify();
+      }
+      return;
+    }
     if (target.type === 'text') {
       updateParam(target.dataset.blockId, target.dataset.paramName, target.value);
     } else {
