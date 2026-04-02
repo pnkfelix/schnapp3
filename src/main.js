@@ -71,7 +71,7 @@ function appendHudEntry(stats) {
   if (stats.probes && stats.probes.length > 0) {
     for (const p of stats.probes) {
       const ms = Math.round(p.timeMs * 100) / 100;
-      text += `\n  🔬 "${p.label}": ${p.calls.toLocaleString()} calls, ${ms}ms`;
+      text += `\n  🔬 "${p.label}": ${p.calls.toLocaleString()} calls, ${ms}ms total`;
     }
   }
   entry.textContent = text;
