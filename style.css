@@ -552,7 +552,8 @@ html, body {
   opacity: 1;
 }
 .tag-row__tag {
-  flex: 1;
+  width: 48px;
+  flex-shrink: 0;
   min-height: 32px;
   padding: 2px 6px;
   border-radius: 6px;
@@ -562,7 +563,7 @@ html, body {
   font-size: 13px;
 }
 .tag-row__default {
-  width: 48px;
+  flex: 1;
   min-height: 32px;
   padding: 2px 6px;
   border-radius: 6px;
