@@ -67,6 +67,13 @@ function appendHudEntry(stats) {
     if (t.provenance != null) parts.push(`prov:${t.provenance}ms`);
     if (parts.length > 0) text += `\n  ⏱ ${parts.join(' | ')}`;
   }
+  // Timing probes from timing blocks
+  if (stats.probes && stats.probes.length > 0) {
+    for (const p of stats.probes) {
+      const ms = Math.round(p.timeMs * 100) / 100;
+      text += `\n  🔬 "${p.label}": ${p.calls.toLocaleString()} calls, ${ms}ms`;
+    }
+  }
   entry.textContent = text;
   hudEl.appendChild(entry);
   // Trim old entries
@@ -193,7 +200,8 @@ async function runGPUPipeline(ast) {
           nodes: stats.octree ? (stats.octree.leafCells || 0) : 0,
           octree: stats.octree,
           gpu: true,
-          timing: stats.timing
+          timing: stats.timing,
+          probes: stats.probes
         });
       }
       if (isFinal) {
@@ -276,7 +284,8 @@ function runPipeline() {
           voxels: stats.octree ? (stats.octree.pointEvals || 0) : 0,
           nodes: stats.octree ? (stats.octree.leafCells || 0) : 0,
           octree: stats.octree,
-          timing: stats.timing
+          timing: stats.timing,
+          probes: stats.probes
         });
       }
       if (isFinal) {
@@ -339,7 +348,8 @@ codeOutput.addEventListener('input', () => {
               meshTime: stats.meshTime, resolution: stats.resolution,
               voxels: stats.octree ? (stats.octree.pointEvals || 0) : 0,
               nodes: stats.octree ? (stats.octree.leafCells || 0) : 0, octree: stats.octree,
-              timing: stats.timing
+              timing: stats.timing,
+              probes: stats.probes
             });
           }
           if (isFinal) {

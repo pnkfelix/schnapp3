@@ -56,7 +56,7 @@ export function getUseOctree() { return useOctree; }
 export function setUseOctree(v) { useOctree = v; }
 
 export function evaluate(ast) {
-  evalStats = { nodes: 0, voxels: 0, meshTime: 0, resolution: csgResolution, octree: null, timing: {} };
+  evalStats = { nodes: 0, voxels: 0, meshTime: 0, resolution: csgResolution, octree: null, timing: {}, probes: [] };
   const t0 = performance.now();
   if (!ast) return { group: new THREE.Group(), stats: evalStats };
   const result = evalNode(ast);
@@ -199,7 +199,8 @@ function evalNode(node) {
       const result = group.children.length === 1 ? group.children[0] : group;
       return tagBlockId(result, node);
     }
-    case 'union': {
+    case 'union':
+    case 'timing': {
       if (needsFieldEval(node)) {
         return tagBlockId(meshCSGNode(node), node);
       }
@@ -538,6 +539,23 @@ function evalCSGField(node) {
       if (children.length === 0) return () => EMPTY;
       const fields = children.map(c => evalCSGField(c));
       return (x, y, z) => csgUnion(fields.map(f => f(x, y, z)));
+    }
+    case 'timing': {
+      const p = node[1];
+      const label = (p && p.label) || `timing-${bid || '?'}`;
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY;
+      const fields = children.map(c => evalCSGField(c));
+      const probe = { label, calls: 0, timeMs: 0 };
+      if (evalStats) evalStats.probes.push(probe);
+      const inner = (x, y, z) => csgUnion(fields.map(f => f(x, y, z)));
+      return (x, y, z) => {
+        probe.calls++;
+        const t = performance.now();
+        const r = inner(x, y, z);
+        probe.timeMs += performance.now() - t;
+        return r;
+      };
     }
     case 'intersect': {
       const children = nodeChildren(node);

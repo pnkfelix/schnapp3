@@ -462,6 +462,10 @@ html, body {
 .block--complement, .palette-item--complement {
   background: #668;
 }
+.block--timing, .palette-item--timing {
+  background: #998a00;
+  border: 2px dashed #ccbb33;
+}
 .block--rotate, .palette-item--rotate {
   background: #a5c;
 }

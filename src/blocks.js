@@ -87,6 +87,14 @@ export const BLOCK_DEFS = {
     params: [],
     maxChildren: Infinity
   },
+  timing: {
+    label: 'Timing',
+    category: 'combine',
+    params: [
+      { name: 'label', type: 'text', default: '' }
+    ],
+    maxChildren: Infinity
+  },
   fuse: {
     label: 'Fuse',
     category: 'combine',

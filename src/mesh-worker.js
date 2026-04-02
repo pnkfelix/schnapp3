@@ -4,7 +4,7 @@
 
 import { evalCSGFieldInterval, setTextBoundsProvider } from './interval-eval.js';
 import { buildOctree, meshOctreeLeavesRaw, meshFieldRaw, resToDepth } from './octree-core.js';
-import { evalCSGField, estimateBounds, UNSET_COLOR, UNSET_RGB, setTextSDFGrids, getTextGridBounds } from './csg-field.js';
+import { evalCSGField, estimateBounds, UNSET_COLOR, UNSET_RGB, setTextSDFGrids, getTextGridBounds, resetTimingProbes, getTimingProbes } from './csg-field.js';
 
 // Wire up the text bounds provider so the interval evaluator can use
 // the actual SDF grid bounds (set via setTextSDFGrids) for text nodes.
@@ -17,6 +17,7 @@ self.onmessage = function(e) {
 
   // Install text SDF grids so evalCSGField can use them
   if (textSDFGrids) setTextSDFGrids(textSDFGrids);
+  resetTimingProbes();
   const t0 = performance.now();
 
   try {
@@ -109,6 +110,13 @@ self.onmessage = function(e) {
 
     const elapsed = Math.round(performance.now() - t0);
 
+    // Collect timing probes from any timing blocks
+    const probes = getTimingProbes().map(p => ({
+      label: p.label,
+      calls: p.calls,
+      timeMs: Math.round(p.timeMs * 100) / 100
+    }));
+
     // Transfer typed arrays for zero-copy
     const transferables = [solidRaw.positions.buffer, solidRaw.normals.buffer];
     if (solidRaw.colors) transferables.push(solidRaw.colors.buffer);
@@ -123,6 +131,7 @@ self.onmessage = function(e) {
       stats: { ...stats, usedOctree, bailedOut },
       elapsed,
       timing,
+      probes,
       bounds
     }, transferables);
   } catch (err) {
