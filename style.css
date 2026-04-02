@@ -551,7 +551,7 @@ html, body {
 .tag-row--empty:focus-within {
   opacity: 1;
 }
-.tag-row__tag {
+.tag-row input.tag-row__tag {
   flex: 1 0 60px;
   min-height: 32px;
   padding: 2px 6px;
@@ -561,7 +561,7 @@ html, body {
   color: #fff;
   font-size: 13px;
 }
-.tag-row__default {
+.tag-row input.tag-row__default {
   flex: 3;
   min-height: 32px;
   padding: 2px 6px;
