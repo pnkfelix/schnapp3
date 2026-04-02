@@ -20,8 +20,14 @@ self.onmessage = function(e) {
   const t0 = performance.now();
 
   try {
+    const timing = {};
+    let t1 = performance.now();
     const bounds = estimateBounds(ast);
+    timing.bounds = Math.round((performance.now() - t1) * 100) / 100;
+
+    t1 = performance.now();
     const csgField = evalCSGField(ast);
+    timing.fieldBuild = Math.round((performance.now() - t1) * 100) / 100;
 
     const solidField = (x, y, z) => {
       const { polarity, distance } = csgField(x, y, z);
@@ -49,7 +55,10 @@ self.onmessage = function(e) {
 
     if (useOctree) {
       try {
+        t1 = performance.now();
         const intervalField = evalCSGFieldInterval(ast);
+        timing.intervalBuild = Math.round((performance.now() - t1) * 100) / 100;
+
         const solidIntervalField = (xIv, yIv, zIv) => {
           const r = intervalField(xIv, yIv, zIv);
           // No solid in this region — push distance positive
@@ -65,9 +74,14 @@ self.onmessage = function(e) {
           };
         };
 
+        t1 = performance.now();
         const leaves = buildOctree(solidIntervalField, bounds, depth, stats);
+        timing.octreeBuild = Math.round((performance.now() - t1) * 100) / 100;
+
         if (leaves !== null) {
+          t1 = performance.now();
           solidRaw = meshOctreeLeavesRaw(leaves, solidField, bounds, depth, solidColorField, stats);
+          timing.solidMesh = Math.round((performance.now() - t1) * 100) / 100;
           usedOctree = true;
         } else {
           bailedOut = true;
@@ -80,13 +94,17 @@ self.onmessage = function(e) {
     if (!usedOctree) {
       // Uniform fallback at full requested resolution
       const fallbackRes = 1 << depth;
+      t1 = performance.now();
       solidRaw = meshFieldRaw(solidField, bounds, fallbackRes, solidColorField);
+      timing.solidMesh = Math.round((performance.now() - t1) * 100) / 100;
       stats.pointEvals = (fallbackRes + 1) ** 3;
     }
 
     // Anti-solid (always uniform, capped at reasonable res)
     const antiRes = Math.min(1 << depth, 48);
+    t1 = performance.now();
     const antiRaw = meshFieldRaw(antiField, bounds, antiRes, null);
+    timing.antiMesh = Math.round((performance.now() - t1) * 100) / 100;
     stats.pointEvals += (antiRes + 1) ** 3;
 
     const elapsed = Math.round(performance.now() - t0);
@@ -104,6 +122,7 @@ self.onmessage = function(e) {
       anti: antiRaw,
       stats: { ...stats, usedOctree, bailedOut },
       elapsed,
+      timing,
       bounds
     }, transferables);
   } catch (err) {

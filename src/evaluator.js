@@ -56,7 +56,7 @@ export function getUseOctree() { return useOctree; }
 export function setUseOctree(v) { useOctree = v; }
 
 export function evaluate(ast) {
-  evalStats = { nodes: 0, voxels: 0, meshTime: 0, resolution: csgResolution, octree: null };
+  evalStats = { nodes: 0, voxels: 0, meshTime: 0, resolution: csgResolution, octree: null, timing: {} };
   const t0 = performance.now();
   if (!ast) return { group: new THREE.Group(), stats: evalStats };
   const result = evalNode(ast);
@@ -265,8 +265,16 @@ export function buildProvenanceField(ast) {
 
 function meshCSGNode(node) {
   const res = csgResolution;
+  const timing = evalStats ? evalStats.timing : null;
+
+  let t1 = performance.now();
   const bounds = estimateBounds(node);
+  if (timing) timing.bounds = Math.round((performance.now() - t1) * 100) / 100;
+
+  t1 = performance.now();
   const csgField = evalCSGField(node);
+  if (timing) timing.fieldBuild = Math.round((performance.now() - t1) * 100) / 100;
+
   const group = new THREE.Group();
 
   // Solid field: positive polarity → use SDF distance; otherwise push outside
@@ -297,12 +305,14 @@ function meshCSGNode(node) {
 
     // Build interval evaluator for solid field
     let intervalField;
+    t1 = performance.now();
     try {
       intervalField = evalCSGFieldInterval(node);
     } catch (e) {
       console.warn('Octree interval eval failed, falling back to uniform grid:', e);
       return meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField);
     }
+    if (timing) timing.intervalBuild = Math.round((performance.now() - t1) * 100) / 100;
 
     // For the solid mesh, the actual field is:
     //   polarity > 0  → distance  (the SDF)
@@ -325,7 +335,9 @@ function meshCSGNode(node) {
       };
     };
 
+    t1 = performance.now();
     const leaves = buildOctree(solidIntervalField, bounds, depth, octreeStats);
+    if (timing) timing.octreeBuild = Math.round((performance.now() - t1) * 100) / 100;
 
     // buildOctree returns null if it bailed out (interval arithmetic wasn't helping)
     if (leaves === null) {
@@ -336,7 +348,9 @@ function meshCSGNode(node) {
       return meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField);
     }
 
+    t1 = performance.now();
     const solidGeo = meshOctreeLeaves(leaves, solidField, bounds, depth, solidColorField, octreeStats);
+    if (timing) timing.solidMesh = Math.round((performance.now() - t1) * 100) / 100;
 
     if (solidGeo.index && solidGeo.index.count > 0) {
       const solidMat = new THREE.MeshStandardMaterial({
@@ -350,7 +364,9 @@ function meshCSGNode(node) {
 
     // Anti-solid: use uniform grid (anti-solids are typically small/rare)
     if (evalStats) evalStats.voxels += (res + 1) ** 3;
+    t1 = performance.now();
     const antiGeo = meshField(antiField, bounds, res);
+    if (timing) timing.antiMesh = Math.round((performance.now() - t1) * 100) / 100;
     if (antiGeo.index && antiGeo.index.count > 0) {
       addAntiMesh(group, antiGeo);
     }
@@ -372,9 +388,12 @@ function meshCSGNode(node) {
 // Original uniform-grid meshing (fallback)
 function meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField) {
   if (evalStats) evalStats.voxels += (res + 1) ** 3;
+  const timing = evalStats ? evalStats.timing : null;
   const group = new THREE.Group();
 
+  let t1 = performance.now();
   const solidGeo = meshField(solidField, bounds, res, solidColorField);
+  if (timing) timing.solidMesh = Math.round((performance.now() - t1) * 100) / 100;
   if (solidGeo.index && solidGeo.index.count > 0) {
     const solidMat = new THREE.MeshStandardMaterial({
       vertexColors: true,
@@ -385,7 +404,9 @@ function meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorF
     group.add(solidMesh);
   }
 
+  t1 = performance.now();
   const antiGeo = meshField(antiField, bounds, res);
+  if (timing) timing.antiMesh = Math.round((performance.now() - t1) * 100) / 100;
   if (antiGeo.index && antiGeo.index.count > 0) {
     addAntiMesh(group, antiGeo);
   }
