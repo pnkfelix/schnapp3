@@ -256,12 +256,19 @@ function formatNode(node, indent) {
       const p = node[1];
       const tagList = (p.tags || '').trim().split(/\s+/).filter(Boolean);
       const tagsStr = tagList.map(t => `"${t}"`).join(' ');
+      let defaultsStr = '';
+      if (p.defaults && Object.keys(p.defaults).length > 0) {
+        const pairs = Object.entries(p.defaults).map(([k, v]) =>
+          `("${k}" ${fmtParam(v)})`
+        ).join(' ');
+        defaultsStr = ` :defaults (${pairs})`;
+      }
       const children = node.slice(2);
       if (children.length === 0) {
-        return `${pad}(enzyme :tags (${tagsStr}))`;
+        return `${pad}(enzyme :tags (${tagsStr})${defaultsStr})`;
       }
       const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
-      return `${pad}(enzyme :tags (${tagsStr})\n${childStrs})`;
+      return `${pad}(enzyme :tags (${tagsStr})${defaultsStr}\n${childStrs})`;
     }
     case 'tags': {
       const p = node[1];
