@@ -24,14 +24,23 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}preview/?pr=${{ github.event.pull_request.number }}
     steps:
-      - name: Check for other preview PRs
+      - name: Enforce single preview label
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          OTHER=$(gh pr list --repo "$GITHUB_REPOSITORY" --label preview --json number \
-            --jq "[.[] | select(.number != ${{ github.event.pull_request.number }})] | length")
-          if [ "$OTHER" -gt 0 ]; then
-            echo "::error::Another PR already has the 'preview' label. Remove it first."
+          THIS_PR=${{ github.event.pull_request.number }}
+          OTHERS=$(gh pr list --repo "$GITHUB_REPOSITORY" --label preview --json number,url \
+            --jq "[.[] | select(.number != ${THIS_PR})]")
+          COUNT=$(echo "$OTHERS" | jq 'length')
+          if [ "$COUNT" -gt 0 ]; then
+            # Remove the label from this PR so we don't add to the conflict
+            gh pr edit "$THIS_PR" --repo "$GITHUB_REPOSITORY" --remove-label preview
+            # List all conflicting PRs
+            LISTING=$(echo "$OTHERS" | jq -r '.[] | "  - PR #\(.number): \(.url)"')
+            echo "::error::Other PRs already have the 'preview' label. Remove it from them first."
+            echo ""
+            echo "Conflicting PRs:"
+            echo "$LISTING"
             exit 1
           fi
 
