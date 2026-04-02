@@ -83,6 +83,10 @@ function formatNode(node, indent) {
       const p = node[1];
       return `${pad}(cylinder ${fmtParam(p.radius)} ${fmtParam(p.height)})`;
     }
+    case 'text': {
+      const p = node[1];
+      return `${pad}(text "${fmtParam(p.content)}" :size ${fmtParam(p.size)} :depth ${fmtParam(p.depth)} :font "${p.font || 'helvetiker'}")`;
+    }
     case 'translate': {
       const p = node[1];
       const children = node.slice(2);

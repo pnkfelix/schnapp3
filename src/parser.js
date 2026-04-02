@@ -28,6 +28,7 @@ export function parseSExpr(text) {
       case 'cube': return parseCube();
       case 'sphere': return parseSphere();
       case 'cylinder': return parseCylinder();
+      case 'text': return parseText();
       case 'translate': return parseTranslate();
       case 'paint': return parsePaint();
       case 'recolor': return parseRecolor();
@@ -74,10 +75,10 @@ export function parseSExpr(text) {
     while (peek() && peek().startsWith(':')) {
       const kw = next().slice(1); // strip ':'
       if (kw === 'color' || kw === 'from' || kw === 'to' || kw === 'axis'
-          || kw === 'name' || kw === 'params' || kw === 'args') {
+          || kw === 'name' || kw === 'params' || kw === 'args' || kw === 'font') {
         args[kw] = parseStringOrIdent();
       } else if (kw === 'k' || kw === 'rate' || kw === 'count' || kw === 'spacing' || kw === 'sx' || kw === 'sy' || kw === 'sz'
-                 || kw === 'angle' || kw === 'value') {
+                 || kw === 'angle' || kw === 'value' || kw === 'size' || kw === 'depth') {
         args[kw] = parseNumber();
       } else if (kw === 'tags') {
         // :tags takes a parenthesized list of strings
@@ -115,6 +116,19 @@ export function parseSExpr(text) {
     parseKeywordArgs();
     next(); // )
     return ['cylinder', { radius, height }];
+  }
+
+  function parseText() {
+    // (text "CONTENT" :size S :depth D :font "FONT")
+    const content = parseStringOrIdent();
+    const kw = parseKeywordArgs();
+    next(); // )
+    return ['text', {
+      content: content || 'Text',
+      size: kw.size || 20,
+      depth: kw.depth || 4,
+      font: kw.font || 'helvetiker'
+    }];
   }
 
   function parsePaint() {

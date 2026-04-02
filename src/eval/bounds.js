@@ -30,6 +30,18 @@ export function estimateBounds(node, offset = [0, 0, 0]) {
         max: [offset[0] + r, offset[1] + h, offset[2] + r]
       };
     }
+    case 'text': {
+      const content = node[1].content || 'Text';
+      const fontSize = node[1].size || 20;
+      const depth = node[1].depth || 4;
+      const hw = fontSize * content.length * 0.3 + pad;
+      const hh = fontSize * 0.5 + pad;
+      const hd = depth / 2 + pad;
+      return {
+        min: [offset[0] - hw, offset[1] - hh, offset[2] - hd],
+        max: [offset[0] + hw, offset[1] + hh, offset[2] + hd]
+      };
+    }
     case 'translate': {
       const p = node[1];
       const newOff = [offset[0] + (p.x||0), offset[1] + (p.y||0), offset[2] + (p.z||0)];

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { meshField } from './surface-nets.js';
 import { evalCSGFieldInterval } from './interval-eval.js';
 import { buildOctree, meshOctreeLeaves, resToDepth } from './octree-mesh.js';
@@ -6,6 +7,8 @@ import { nodeChildren, COLOR_MAP, DEFAULT_COLOR, UNSET_COLOR, hexToRgb, DEFAULT_
 import { estimateBounds, mergeBounds } from './eval/bounds.js';
 import { evalField } from './eval/sdf-field.js';
 import { addAntiMesh, getAntiCheckerSize, setAntiCheckerSize, getAntiWireframeMode, setAntiWireframeMode, cycleAntiWireframeMode } from './eval/anti-mesh.js';
+import { getTextSDF } from './eval/text-sdf.js';
+import { getFont } from './eval/font-cache.js';
 
 // S-expression AST → Three.js geometry
 // Consumes the structured AST from codegen.js, knows nothing about blocks.
@@ -100,6 +103,41 @@ function evalNode(node) {
       const r = p.radius || 10;
       const h = p.height || 30;
       const geo = new THREE.CylinderGeometry(r, r, h, 32);
+      const mat = new THREE.MeshStandardMaterial({ color: COLOR_MAP[DEFAULT_COLOR] });
+      return tagBlockId(new THREE.Mesh(geo, mat), node);
+    }
+    case 'text': {
+      const p = node[1];
+      const content = p.content || 'Text';
+      const fontSize = p.size || 20;
+      const depth = p.depth || 4;
+      const fontName = p.font || 'helvetiker';
+      const font = getFont(fontName);
+      if (!font) {
+        // Font not loaded yet — show placeholder box, re-render will happen on load
+        const pw = fontSize * content.length * 0.6;
+        const geo = new THREE.BoxGeometry(pw, fontSize, depth);
+        const mat = new THREE.MeshStandardMaterial({ color: COLOR_MAP[DEFAULT_COLOR], opacity: 0.3, transparent: true });
+        return tagBlockId(new THREE.Mesh(geo, mat), node);
+      }
+      const geo = new TextGeometry(content, {
+        font,
+        size: fontSize,
+        depth: depth,
+        curveSegments: 6,
+        bevelEnabled: true,
+        bevelThickness: Math.min(depth * 0.1, 1),
+        bevelSize: Math.min(fontSize * 0.03, 0.5),
+        bevelOffset: 0,
+        bevelSegments: 3
+      });
+      geo.computeBoundingBox();
+      // Center the text geometry
+      const bb = geo.boundingBox;
+      const cx = -(bb.min.x + bb.max.x) / 2;
+      const cy = -(bb.min.y + bb.max.y) / 2;
+      const cz = -(bb.min.z + bb.max.z) / 2;
+      geo.translate(cx, cy, cz);
       const mat = new THREE.MeshStandardMaterial({ color: COLOR_MAP[DEFAULT_COLOR] });
       return tagBlockId(new THREE.Mesh(geo, mat), node);
     }
@@ -382,6 +420,33 @@ function evalCSGField(node) {
         const dy = Math.abs(y) - h / 2;
         const outside = Math.sqrt(Math.max(dx,0)**2 + Math.max(dy,0)**2);
         const inside = Math.min(Math.max(dx, dy), 0);
+        const d = outside + inside;
+        return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR, blockId: bid };
+      };
+    }
+    case 'text': {
+      const content = node[1].content || 'Text';
+      const fontSize = node[1].size || 20;
+      const depth = node[1].depth || 4;
+      const fontName = node[1].font || 'helvetiker';
+      const font = getFont(fontName);
+      const sdfResult = font ? getTextSDF(content, fontSize, depth, font) : null;
+
+      if (sdfResult) {
+        const sdfField = sdfResult.field;
+        return (x, y, z) => {
+          const d = sdfField(x, y, z);
+          return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR, blockId: bid };
+        };
+      }
+      // Font not loaded yet — box fallback (re-render will happen on font load)
+      const hw = fontSize * content.length * 0.3;
+      const hh = fontSize * 0.5;
+      const hd = depth / 2;
+      return (x, y, z) => {
+        const qx = Math.abs(x) - hw, qy = Math.abs(y) - hh, qz = Math.abs(z) - hd;
+        const outside = Math.sqrt(Math.max(qx,0)**2 + Math.max(qy,0)**2 + Math.max(qz,0)**2);
+        const inside = Math.min(Math.max(qx, qy, qz), 0);
         const d = outside + inside;
         return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR, blockId: bid };
       };
@@ -727,3 +792,4 @@ function recolorObject(obj, fromColor, toColor) {
 export { evalField } from './eval/sdf-field.js';
 export { estimateBounds } from './eval/bounds.js';
 export { addAntiMesh, getAntiCheckerSize, setAntiCheckerSize, getAntiWireframeMode, setAntiWireframeMode, cycleAntiWireframeMode } from './eval/anti-mesh.js';
+export { setOnFontLoaded } from './eval/font-cache.js';

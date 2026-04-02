@@ -4,12 +4,27 @@
 
 import { evalCSGFieldInterval } from './interval-eval.js';
 import { buildOctree, meshOctreeLeavesRaw, meshFieldRaw, resToDepth } from './octree-core.js';
-import { evalCSGField, estimateBounds, UNSET_COLOR, UNSET_RGB } from './csg-field.js';
+import { evalCSGField, estimateBounds, UNSET_COLOR, UNSET_RGB, setTextSDFGrids } from './csg-field.js';
+
+// Check if an AST contains any text nodes (text SDF has imprecise interval
+// bounds, making octree culling unreliable — use uniform grid instead).
+function astHasText(node) {
+  if (!node || !Array.isArray(node)) return false;
+  if (node[0] === 'text') return true;
+  const start = (node[1] && typeof node[1] === 'object' && !Array.isArray(node[1])) ? 2 : 1;
+  for (let i = start; i < node.length; i++) {
+    if (astHasText(node[i])) return true;
+  }
+  return false;
+}
 
 // --- Worker message handler ---
 
 self.onmessage = function(e) {
-  const { id, ast, depth, useOctree } = e.data;
+  const { id, ast, depth, useOctree, textSDFGrids } = e.data;
+
+  // Install text SDF grids so evalCSGField can use them
+  if (textSDFGrids) setTextSDFGrids(textSDFGrids);
   const t0 = performance.now();
 
   try {
@@ -40,7 +55,11 @@ self.onmessage = function(e) {
     let usedOctree = false;
     let bailedOut = false;
 
-    if (useOctree) {
+    // Disable octree for ASTs containing text nodes — the text interval
+    // evaluator uses a box approximation that incorrectly culls interior
+    // regions where letter shapes have gaps. Use uniform grid instead.
+    const hasText = astHasText(ast);
+    if (useOctree && !hasText) {
       try {
         const intervalField = evalCSGFieldInterval(ast);
         const solidIntervalField = (xIv, yIv, zIv) => {

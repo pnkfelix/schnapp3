@@ -433,6 +433,9 @@ html, body {
 .block--cylinder, .palette-item--cylinder {
   background: #26a269;
 }
+.block--text, .palette-item--text {
+  background: #a0522d;
+}
 .block--translate, .palette-item--translate {
   background: #813d9c;
 }

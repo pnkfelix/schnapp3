@@ -76,6 +76,34 @@ export function evalCSGFieldInterval(node) {
         };
       };
     }
+    case 'text': {
+      // Approximate text as a box SDF for interval evaluation.
+      // The box is an outer bound — we can safely say "definitely outside" when
+      // the box SDF is positive, but we must NOT claim "definitely inside" because
+      // the actual text shape has gaps between/inside letters. We mark any region
+      // that the box says is inside as ambiguous so the octree doesn't cull it.
+      const content = node[1].content || 'Text';
+      const fontSize = node[1].size || 20;
+      const depth = node[1].depth || 4;
+      const hw = fontSize * content.length * 0.3;
+      const hh = fontSize * 0.5;
+      const hd = depth / 2;
+      return (xIv, yIv, zIv) => {
+        const qx = isub(iabs(xIv), [hw, hw]);
+        const qy = isub(iabs(yIv), [hh, hh]);
+        const qz = isub(iabs(zIv), [hd, hd]);
+        const outside = isqrt(iadd(iadd(isq(imax0(qx)), isq(imax0(qy))), isq(imax0(qz))));
+        const inside = imin0(imax3(qx, qy, qz));
+        const dist = iadd(outside, inside);
+        // Outside the box → definitely outside (polarity [0,0])
+        // Inside or straddling → ambiguous (polarity [0,1]) since text
+        // has complex interior geometry the box can't represent
+        return {
+          distance: dist,
+          polarity: dist[0] > 0 ? [0, 0] : [0, 1]
+        };
+      };
+    }
     case 'translate': {
       const p = node[1];
       const tx = p.x || 0, ty = p.y || 0, tz = p.z || 0;
