@@ -24,14 +24,19 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}preview/?pr=${{ github.event.pull_request.number }}
     steps:
-      - name: Check for other preview PRs
+      - name: Enforce single preview label
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          OTHER=$(gh pr list --repo "$GITHUB_REPOSITORY" --label preview --json number \
-            --jq "[.[] | select(.number != ${{ github.event.pull_request.number }})] | length")
-          if [ "$OTHER" -gt 0 ]; then
-            echo "::error::Another PR already has the 'preview' label. Remove it first."
+          THIS_PR=${{ github.event.pull_request.number }}
+          OWNER_PR=$(gh pr list --repo "$GITHUB_REPOSITORY" --label preview --json number,url \
+            --jq "[.[] | select(.number != ${THIS_PR})] | .[0]")
+          if [ -n "$OWNER_PR" ] && [ "$OWNER_PR" != "null" ]; then
+            OWNER_NUM=$(echo "$OWNER_PR" | jq -r '.number')
+            OWNER_URL=$(echo "$OWNER_PR" | jq -r '.url')
+            # Remove the label from this PR so the existing owner stays sole label holder
+            gh pr edit "$THIS_PR" --repo "$GITHUB_REPOSITORY" --remove-label preview
+            echo "::error::PR #${OWNER_NUM} already owns the 'preview' label (${OWNER_URL}). Remove it there first."
             exit 1
           fi
 
