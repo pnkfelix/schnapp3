@@ -247,6 +247,7 @@ export function setResolution(n) { csgResolution = Math.max(16, n); }
 
 // Sample the CSG provenance field at each vertex and store as userData
 function stampProvenance(mesh, csgField) {
+  const t1 = performance.now();
   const pos = mesh.geometry.getAttribute('position');
   if (!pos) return;
   const blockIds = new Array(pos.count);
@@ -255,6 +256,9 @@ function stampProvenance(mesh, csgField) {
     blockIds[i] = r.blockId || null;
   }
   mesh.userData.vertexBlockIds = blockIds;
+  if (evalStats && evalStats.timing) {
+    evalStats.timing.provenance = (evalStats.timing.provenance || 0) + Math.round((performance.now() - t1) * 100) / 100;
+  }
 }
 
 // Build a provenance field from an AST for post-processing (progressive path)

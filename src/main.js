@@ -64,6 +64,7 @@ function appendHudEntry(stats) {
     if (t.octreeBuild != null) parts.push(`octree:${t.octreeBuild}ms`);
     if (t.solidMesh != null) parts.push(`solid:${t.solidMesh}ms`);
     if (t.antiMesh != null) parts.push(`anti:${t.antiMesh}ms`);
+    if (t.provenance != null) parts.push(`prov:${t.provenance}ms`);
     if (parts.length > 0) text += `\n  ⏱ ${parts.join(' | ')}`;
   }
   entry.textContent = text;
