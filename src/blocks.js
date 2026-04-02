@@ -30,6 +30,21 @@ export const BLOCK_DEFS = {
     ],
     maxChildren: 0
   },
+  text: {
+    label: 'Text',
+    category: 'primitive',
+    params: [
+      { name: 'content', type: 'text', default: 'Hello' },
+      { name: 'size', type: 'number', default: 20, min: 1, max: 200 },
+      { name: 'depth', type: 'number', default: 4, min: 0.5, max: 100 },
+      { name: 'font', type: 'color', default: 'helvetiker', options: [
+        'helvetiker', 'helvetiker bold', 'optimer', 'optimer bold',
+        'gentilis', 'gentilis bold', 'droid sans', 'droid sans bold',
+        'droid serif', 'droid serif bold'
+      ]}
+    ],
+    maxChildren: 0
+  },
   translate: {
     label: 'Translate',
     category: 'transform',

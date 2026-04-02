@@ -3,6 +3,8 @@
 // Color nodes (paint, recolor) are transparent to field evaluation.
 
 import { nodeChildren } from './ast-utils.js';
+import { getFont } from './font-cache.js';
+import { getTextSDF } from './text-sdf.js';
 
 export function evalField(node) {
   const type = node[0];
@@ -31,6 +33,28 @@ export function evalField(node) {
         const dy = Math.abs(y) - h / 2;
         const outside = Math.sqrt(Math.max(dx, 0)**2 + Math.max(dy, 0)**2);
         const inside = Math.min(Math.max(dx, dy), 0);
+        return outside + inside;
+      };
+    }
+    case 'text': {
+      const content = node[1].content || 'Text';
+      const fontSize = node[1].size || 20;
+      const depth = node[1].depth || 4;
+      const fontName = node[1].font || 'helvetiker';
+      const font = getFont(fontName);
+      const sdfResult = font ? getTextSDF(content, fontSize, depth, font) : null;
+
+      if (sdfResult) {
+        return sdfResult.field;
+      }
+      // Font not loaded — box fallback
+      const hw = fontSize * content.length * 0.3;
+      const hh = fontSize * 0.5;
+      const hd = depth / 2;
+      return (x, y, z) => {
+        const qx = Math.abs(x) - hw, qy = Math.abs(y) - hh, qz = Math.abs(z) - hd;
+        const outside = Math.sqrt(Math.max(qx, 0)**2 + Math.max(qy, 0)**2 + Math.max(qz, 0)**2);
+        const inside = Math.min(Math.max(qx, qy, qz), 0);
         return outside + inside;
       };
     }

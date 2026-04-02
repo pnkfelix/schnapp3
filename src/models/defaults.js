@@ -34,6 +34,11 @@ export const DEFAULT_MODELS = {
 
   cube: `(cube 20)`,
 
+  'text-sdf': `(mirror :axis "x"
+  (text "Hi" :size 20 :depth 4 :font "helvetiker"))`,
+
+  'text-plain': `(text "Hello" :size 20 :depth 4 :font "helvetiker")`,
+
   warps: `(union
   (mirror :axis "x"
     (translate 12 0 0

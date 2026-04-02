@@ -11,6 +11,47 @@ export { COLOR_MAP, DEFAULT_COLOR, UNSET_COLOR, UNSET_RGB, EMPTY };
 export { hexToRgb };
 export { estimateBounds };
 
+// Text SDF grids, keyed by "fontName|size|depth|content".
+// Set by the worker before calling evalCSGField.
+let textSDFGrids = {};
+export function setTextSDFGrids(grids) { textSDFGrids = grids || {}; }
+
+// Trilinear interpolation lookup on a raw SDF grid
+function sdfGridLookup(grid, x, y, z) {
+  const { sdf, ox, oy, oz, nx, ny, nz, voxelSize } = grid;
+  const gx = (x - ox) / voxelSize - 0.5;
+  const gy = (y - oy) / voxelSize - 0.5;
+  const gz = (z - oz) / voxelSize - 0.5;
+
+  // Outside grid — positive distance estimate
+  if (gx < 0 || gy < 0 || gz < 0 || gx >= nx - 1 || gy >= ny - 1 || gz >= nz - 1) {
+    const dx = Math.max(ox - x, 0, x - (ox + nx * voxelSize));
+    const dy = Math.max(oy - y, 0, y - (oy + ny * voxelSize));
+    const dz = Math.max(oz - z, 0, z - (oz + nz * voxelSize));
+    return Math.sqrt(dx * dx + dy * dy + dz * dz) + voxelSize;
+  }
+
+  const iix = Math.floor(gx), iiy = Math.floor(gy), iiz = Math.floor(gz);
+  const fx = gx - iix, fy = gy - iiy, fz = gz - iiz;
+
+  const i000 = iix + iiy * nx + iiz * nx * ny;
+  const i100 = i000 + 1;
+  const i010 = i000 + nx;
+  const i110 = i000 + nx + 1;
+  const i001 = i000 + nx * ny;
+  const i101 = i001 + 1;
+  const i011 = i001 + nx;
+  const i111 = i001 + nx + 1;
+
+  const c00 = sdf[i000] * (1 - fx) + sdf[i100] * fx;
+  const c10 = sdf[i010] * (1 - fx) + sdf[i110] * fx;
+  const c01 = sdf[i001] * (1 - fx) + sdf[i101] * fx;
+  const c11 = sdf[i011] * (1 - fx) + sdf[i111] * fx;
+  const c0 = c00 * (1 - fy) + c10 * fy;
+  const c1 = c01 * (1 - fy) + c11 * fy;
+  return c0 * (1 - fz) + c1 * fz;
+}
+
 export function evalCSGField(node) {
   if (!node || !Array.isArray(node)) return () => EMPTY;
   const type = node[0];
@@ -40,6 +81,31 @@ export function evalCSGField(node) {
         const dy = Math.abs(y) - h / 2;
         const outside = Math.sqrt(Math.max(dx,0)**2 + Math.max(dy,0)**2);
         const inside = Math.min(Math.max(dx, dy), 0);
+        const d = outside + inside;
+        return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR };
+      };
+    }
+    case 'text': {
+      const content = node[1].content || 'Text';
+      const fontSize = node[1].size || 20;
+      const depth = node[1].depth || 4;
+      const fontName = node[1].font || 'helvetiker';
+      const key = `${fontName}|${fontSize}|${depth}|${content}`;
+      const grid = textSDFGrids[key];
+      if (grid) {
+        return (x, y, z) => {
+          const d = sdfGridLookup(grid, x, y, z);
+          return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR };
+        };
+      }
+      // No SDF grid available — box fallback
+      const hw = fontSize * content.length * 0.3;
+      const hh = fontSize * 0.5;
+      const hd = depth / 2;
+      return (x, y, z) => {
+        const qx = Math.abs(x) - hw, qy = Math.abs(y) - hh, qz = Math.abs(z) - hd;
+        const outside = Math.sqrt(Math.max(qx, 0) ** 2 + Math.max(qy, 0) ** 2 + Math.max(qz, 0) ** 2);
+        const inside = Math.min(Math.max(qx, qy, qz), 0);
         const d = outside + inside;
         return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR };
       };
