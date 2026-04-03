@@ -9,6 +9,7 @@ import { evalField } from './eval/sdf-field.js';
 import { addAntiMesh, getAntiCheckerSize, setAntiCheckerSize, getAntiWireframeMode, setAntiWireframeMode, cycleAntiWireframeMode } from './eval/anti-mesh.js';
 import { getTextSDF, getTextSDFBounds } from './eval/text-sdf.js';
 import { getFont } from './eval/font-cache.js';
+import { textToBlockAST } from './eval/block-font.js';
 
 // Wire up the text bounds provider so the interval evaluator uses actual
 // text SDF geometry extents instead of approximate font metrics.
@@ -113,12 +114,23 @@ function evalNode(node) {
       const mat = new THREE.MeshStandardMaterial({ color: COLOR_MAP[DEFAULT_COLOR] });
       return tagBlockId(new THREE.Mesh(geo, mat), node);
     }
+    case 'box': {
+      const p = node[1];
+      const sx = p.sx || 20, sy = p.sy || 20, sz = p.sz || 20;
+      const geo = new THREE.BoxGeometry(sx, sy, sz);
+      const mat = new THREE.MeshStandardMaterial({ color: COLOR_MAP[p.color || DEFAULT_COLOR] });
+      return tagBlockId(new THREE.Mesh(geo, mat), node);
+    }
     case 'text': {
       const p = node[1];
       const content = p.content || 'Text';
       const fontSize = p.size || 20;
       const depth = p.depth || 4;
       const fontName = p.font || 'helvetiker';
+      if (fontName === 'block') {
+        const blockAST = textToBlockAST(content, fontSize, depth, p.color);
+        return tagBlockId(evalNode(blockAST), node);
+      }
       const font = getFont(fontName);
       if (!font) {
         // Font not loaded yet — show placeholder box, re-render will happen on load
