@@ -26,6 +26,7 @@ const PREFIX_HINTS = {
   reset: 'load a model',
   bench: 'run performance benchmark',
   visual: 'anti-solid visualization',
+  export: 'export model to file',
 };
 
 let COMMANDS = [];
@@ -195,6 +196,12 @@ function executeCommand(text) {
     commandInput.blur();
     return;
   }
+  if (parts[0] === 'export' && parts[1] === '3mf') {
+    ctx.export3MF();
+    commandInput.value = '';
+    commandInput.blur();
+    return;
+  }
   if (parts[0] === 'reset') {
     ctx.loadDefaultModel(parts[1]);
     commandInput.value = '';
@@ -266,6 +273,7 @@ export function initCommandBar(modelNames, callbacks) {
     { text: 'visual anti via checker 5', hint: 'anti-solid checker size: large' },
     { text: 'visual anti via checker 10', hint: 'anti-solid checker size: very large' },
     { text: 'visual anti via wireframe', hint: 'cycle: off → full → edges' },
+    { text: 'export 3mf', hint: 'download 3MF for 3D printing (multi-color)' },
     { text: 'focus reset', hint: 'reset camera focus to origin' },
     { text: 'focus', hint: 'show current camera focus point' },
     ...modelNames.map(name => ({

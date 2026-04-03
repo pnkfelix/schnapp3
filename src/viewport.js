@@ -136,6 +136,9 @@ export function createViewport(container) {
   });
 
   return {
+    getContent() {
+      return contentGroup;
+    },
     setContent(newGroup) {
       scene.remove(contentGroup);
       contentGroup.traverse(obj => {

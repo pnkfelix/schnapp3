@@ -10,6 +10,7 @@ import { initGPU, gpuEvaluate, gpuEvaluateOctree, gpuEvaluateOctreeProgressive, 
 import { runBenchmark } from './benchmark.js';
 import { DEFAULT_MODELS, DEFAULT_MODEL_NAME } from './models/defaults.js';
 import { initCommandBar } from './ui/command-bar.js';
+import { download3MF } from './export-3mf.js';
 
 // Boot viewport
 const viewport = createViewport(document.getElementById('viewport-panel'));
@@ -379,6 +380,12 @@ initCommandBar(Object.keys(DEFAULT_MODELS), {
   },
   toggleProgressive() {
     useProgressiveMode = !useProgressiveMode;
+  },
+  export3MF() {
+    const content = viewport.getContent();
+    if (!download3MF(content)) {
+      console.warn('export 3mf: scene is empty, nothing to export');
+    }
   },
 });
 
