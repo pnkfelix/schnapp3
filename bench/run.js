@@ -53,6 +53,14 @@ const MODELS = {
     (stretch :sx 1 :sy 3 :sz 1
       (text "HellO" :size 20 :depth 4 :font "helvetiker"))))`,
 
+  'hello-block': `(union
+  (mirror :axis "y"
+    (translate 0 32 0
+      (cylinder 32 3)))
+  (twist :axis "y" :rate 0.05
+    (stretch :sx 1 :sy 3 :sz 1
+      (text "HellO" :size 20 :depth 4 :font "block"))))`,
+
   'simple-csg': `(intersect (cube 25) (sphere 18))`,
 
   'cylinder': `(cylinder 10 30)`,
@@ -469,6 +477,10 @@ async function main() {
     console.log(`  Time: ${result.elapsed}ms`);
     console.log(`  Point evals: ${s.pointEvals.toLocaleString()}`);
     console.log(`  Octree: ${s.usedOctree ? 'YES' : 'NO'}${s.bailedOut ? ' (bailed out)' : ''}`);
+    if (s.usedOctree && s.nodesVisited) {
+      const pct = Math.round(100 * (s.nodesCulledOutside + s.nodesCulledInside) / s.nodesVisited);
+      console.log(`  Octree detail: ${s.leafCells} leaves, ${pct}% culled (${s.nodesCulledOutside}out + ${s.nodesCulledInside}in of ${s.nodesVisited})${s.shallowCullRatio != null ? ` shallow: ${(s.shallowCullRatio*100).toFixed(0)}%` : ''}`);
+    }
 
     meshData = extractWorkerMeshData(result);
     console.log();
