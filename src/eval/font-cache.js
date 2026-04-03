@@ -22,6 +22,7 @@ const fontLoading = {};     // name → Promise (in-flight)
 let onFontLoaded = null;    // callback when a font finishes loading
 
 export function setOnFontLoaded(cb) { onFontLoaded = cb; }
+export function injectFont(name, font) { fontCache[name] = font; }
 
 export function getFont(name) {
   if (fontCache[name]) {

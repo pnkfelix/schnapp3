@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "type": "module",
+  "imports": {
+    "three/addons/*": "./node_modules/three/examples/jsm/*"
+  },
+  "dependencies": {
+    "three": "0.170.0"
+  },
+  "scripts": {
+    "bench": "node bench/run.js"
+  }
+}
