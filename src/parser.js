@@ -33,6 +33,7 @@ export function parseSExpr(text) {
       case 'paint': return parsePaint();
       case 'recolor': return parseRecolor();
       case 'union': return parseUnion();
+      case 'timing': return parseTiming();
       case 'intersect': return parseIntersect();
       case 'anti': return parseAnti();
       case 'complement': return parseComplement();
@@ -168,6 +169,13 @@ export function parseSExpr(text) {
     const children = parseChildren();
     next(); // )
     return ['union', ...children];
+  }
+
+  function parseTiming() {
+    const label = (peek() && typeof peek() === 'string' && peek() !== ')') ? next() : '';
+    const children = parseChildren();
+    next(); // )
+    return ['timing', { label }, ...children];
   }
 
   function parseIntersect() {
