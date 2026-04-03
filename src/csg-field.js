@@ -6,6 +6,7 @@
 
 import { nodeChildren, COLOR_MAP, DEFAULT_COLOR, UNSET_COLOR, hexToRgb, DEFAULT_RGB, UNSET_RGB, EMPTY } from './eval/ast-utils.js';
 import { estimateBounds, mergeBounds } from './eval/bounds.js';
+import { textToBlockAST } from './eval/block-font.js';
 
 export { COLOR_MAP, DEFAULT_COLOR, UNSET_COLOR, UNSET_RGB, EMPTY };
 export { hexToRgb };
@@ -102,11 +103,26 @@ export function evalCSGField(node) {
         return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR };
       };
     }
+    case 'box': {
+      const hx = (node[1].sx || 20) / 2;
+      const hy = (node[1].sy || 20) / 2;
+      const hz = (node[1].sz || 20) / 2;
+      return (x, y, z) => {
+        const qx = Math.abs(x) - hx, qy = Math.abs(y) - hy, qz = Math.abs(z) - hz;
+        const outside = Math.sqrt(Math.max(qx,0)**2 + Math.max(qy,0)**2 + Math.max(qz,0)**2);
+        const inside = Math.min(Math.max(qx, qy, qz), 0);
+        const d = outside + inside;
+        return { polarity: d <= 0 ? 1 : 0, distance: d, color: UNSET_COLOR };
+      };
+    }
     case 'text': {
       const content = node[1].content || 'Text';
       const fontSize = node[1].size || 20;
       const depth = node[1].depth || 4;
       const fontName = node[1].font || 'helvetiker';
+      if (fontName === 'block') {
+        return evalCSGField(textToBlockAST(content, fontSize, depth, node[1].color));
+      }
       const key = `${fontName}|${fontSize}|${depth}|${content}`;
       const grid = textSDFGrids[key];
       if (grid) {

@@ -2,6 +2,7 @@
 // Pure geometric calculations — no Three.js dependency.
 
 import { nodeChildren } from './ast-utils.js';
+import { textToBlockAST, getBlockFontBounds } from './block-font.js';
 
 export function estimateBounds(node, offset = [0, 0, 0]) {
   const type = node[0];
@@ -30,10 +31,27 @@ export function estimateBounds(node, offset = [0, 0, 0]) {
         max: [offset[0] + r, offset[1] + h, offset[2] + r]
       };
     }
+    case 'box': {
+      const hx = (node[1].sx || 20) / 2 + pad;
+      const hy = (node[1].sy || 20) / 2 + pad;
+      const hz = (node[1].sz || 20) / 2 + pad;
+      return {
+        min: [offset[0] - hx, offset[1] - hy, offset[2] - hz],
+        max: [offset[0] + hx, offset[1] + hy, offset[2] + hz]
+      };
+    }
     case 'text': {
       const content = node[1].content || 'Text';
       const fontSize = node[1].size || 20;
       const depth = node[1].depth || 4;
+      const fontName = node[1].font || 'helvetiker';
+      if (fontName === 'block') {
+        const b = getBlockFontBounds(content, fontSize, depth);
+        return {
+          min: [offset[0] - b.hw - pad, offset[1] - b.hh - pad, offset[2] - b.hd - pad],
+          max: [offset[0] + b.hw + pad, offset[1] + b.hh + pad, offset[2] + b.hd + pad]
+        };
+      }
       const hw = fontSize * content.length * 0.3 + pad;
       const hh = fontSize * 0.5 + pad;
       const hd = depth / 2 + pad;

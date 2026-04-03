@@ -12,6 +12,7 @@ import {
   imin, imax, imax0, imin0, imax3,
   icos, isin, iatan2, imod, isoftmin, classify
 } from './interval.js';
+import { textToBlockAST } from './eval/block-font.js';
 // Text bounds provider — set by the caller before building the interval evaluator.
 // Main-thread sets this to getTextSDFBounds (from text-sdf.js).
 // Worker sets this to getTextGridBounds (from csg-field.js).
@@ -82,16 +83,34 @@ export function evalCSGFieldInterval(node) {
         };
       };
     }
+    case 'box': {
+      const hx = (node[1].sx || 20) / 2;
+      const hy = (node[1].sy || 20) / 2;
+      const hz = (node[1].sz || 20) / 2;
+      return (xIv, yIv, zIv) => {
+        const qx = isub(iabs(xIv), [hx, hx]);
+        const qy = isub(iabs(yIv), [hy, hy]);
+        const qz = isub(iabs(zIv), [hz, hz]);
+        const outside = isqrt(iadd(iadd(isq(imax0(qx)), isq(imax0(qy))), isq(imax0(qz))));
+        const inside = imin0(imax3(qx, qy, qz));
+        const dist = iadd(outside, inside);
+        return {
+          distance: dist,
+          polarity: dist[1] <= 0 ? [1, 1] : dist[0] > 0 ? [0, 0] : [0, 1]
+        };
+      };
+    }
     case 'text': {
-      // Approximate text as a box SDF for interval evaluation.
-      // The box is an outer bound — we can safely say "definitely outside" when
-      // the box SDF is positive, but we must NOT claim "definitely inside" because
-      // the actual text shape has gaps between/inside letters. We mark any region
-      // that the box says is inside as ambiguous so the octree doesn't cull it.
       const content = node[1].content || 'Text';
       const fontSize = node[1].size || 20;
       const depth = node[1].depth || 4;
       const fontName = node[1].font || 'helvetiker';
+      // Block font: expand to union of boxes — octree can cull each box individually
+      if (fontName === 'block') {
+        return evalCSGFieldInterval(textToBlockAST(content, fontSize, depth, node[1].color));
+      }
+      // Regular fonts: approximate as bounding box (can't claim "definitely inside"
+      // because text has gaps between/inside letters)
       // Use the actual text SDF grid bounds if available (computed from real geometry).
       // Fall back to conservative approximation if the SDF hasn't been built yet.
       const cachedBounds = textBoundsProvider && textBoundsProvider(content, fontSize, depth, fontName);

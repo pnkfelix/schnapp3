@@ -5,6 +5,7 @@
 import { nodeChildren } from './ast-utils.js';
 import { getFont } from './font-cache.js';
 import { getTextSDF } from './text-sdf.js';
+import { textToBlockAST } from './block-font.js';
 
 export function evalField(node) {
   const type = node[0];
@@ -36,11 +37,25 @@ export function evalField(node) {
         return outside + inside;
       };
     }
+    case 'box': {
+      const hx = (node[1].sx || 20) / 2;
+      const hy = (node[1].sy || 20) / 2;
+      const hz = (node[1].sz || 20) / 2;
+      return (x, y, z) => {
+        const qx = Math.abs(x) - hx, qy = Math.abs(y) - hy, qz = Math.abs(z) - hz;
+        const outside = Math.sqrt(Math.max(qx,0)**2 + Math.max(qy,0)**2 + Math.max(qz,0)**2);
+        const inside = Math.min(Math.max(qx, qy, qz), 0);
+        return outside + inside;
+      };
+    }
     case 'text': {
       const content = node[1].content || 'Text';
       const fontSize = node[1].size || 20;
       const depth = node[1].depth || 4;
       const fontName = node[1].font || 'helvetiker';
+      if (fontName === 'block') {
+        return evalField(textToBlockAST(content, fontSize, depth, node[1].color));
+      }
       const font = getFont(fontName);
       const sdfResult = font ? getTextSDF(content, fontSize, depth, font) : null;
 

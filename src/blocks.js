@@ -40,7 +40,7 @@ export const BLOCK_DEFS = {
       { name: 'font', type: 'color', default: 'helvetiker', options: [
         'helvetiker', 'helvetiker bold', 'optimer', 'optimer bold',
         'gentilis', 'gentilis bold', 'droid sans', 'droid sans bold',
-        'droid serif', 'droid serif bold'
+        'droid serif', 'droid serif bold', 'block'
       ]}
     ],
     maxChildren: 0
