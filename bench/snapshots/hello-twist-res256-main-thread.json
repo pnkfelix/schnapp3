@@ -1,5 +1,6 @@
 [
   {
+    "label": "mesh",
     "vertexCount": 250931,
     "faceCount": 455696,
     "positions": [
