@@ -12,9 +12,9 @@ import {
   imin, imax, imax0, imin0, imax3,
   icos, isin, iatan2, imod, isoftmin, classify
 } from './interval.js';
-import { getTextSDFBounds } from './eval/text-sdf.js';
-
-// External text bounds provider (set by worker via setTextBoundsProvider)
+// Text bounds provider — set by the caller before building the interval evaluator.
+// Main-thread sets this to getTextSDFBounds (from text-sdf.js).
+// Worker sets this to getTextGridBounds (from csg-field.js).
 // Returns { hw, hh, hd } or null.
 let textBoundsProvider = null;
 export function setTextBoundsProvider(fn) { textBoundsProvider = fn; }
@@ -94,8 +94,7 @@ export function evalCSGFieldInterval(node) {
       const fontName = node[1].font || 'helvetiker';
       // Use the actual text SDF grid bounds if available (computed from real geometry).
       // Fall back to conservative approximation if the SDF hasn't been built yet.
-      const cachedBounds = getTextSDFBounds(content, fontSize, depth, fontName)
-        || (textBoundsProvider && textBoundsProvider(content, fontSize, depth, fontName));
+      const cachedBounds = textBoundsProvider && textBoundsProvider(content, fontSize, depth, fontName);
       let hw, hh, hd;
       if (cachedBounds) {
         hw = cachedBounds.hw;
