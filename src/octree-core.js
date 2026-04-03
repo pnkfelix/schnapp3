@@ -3,9 +3,10 @@
 
 import { classify } from './interval.js';
 
-// Bail-out threshold
+// Bail-out threshold: if shallow octree culls fewer than this fraction of
+// nodes, fall back to uniform grid (the interval-eval overhead isn't worth it).
 const BAILOUT_CHECK_DEPTH = 3;
-const BAILOUT_MIN_CULL_RATIO = 0.1;
+const BAILOUT_MIN_CULL_RATIO = 0.3;
 
 export function buildOctree(intervalField, bounds, maxDepth, stats) {
   const minX = bounds.min[0], minY = bounds.min[1], minZ = bounds.min[2];
@@ -33,7 +34,9 @@ export function buildOctree(intervalField, bounds, maxDepth, stats) {
       shallowCheck(mx, my, mz, x1, y1, z1, depth + 1);
     }
     shallowCheck(minX, minY, minZ, maxX, maxY, maxZ, 0);
-    if (shallowVisited > 8 && shallowCulled / shallowVisited < BAILOUT_MIN_CULL_RATIO) {
+    const shallowRatio = shallowVisited > 0 ? shallowCulled / shallowVisited : 0;
+    if (stats) stats.shallowCullRatio = shallowRatio;
+    if (shallowVisited > 8 && shallowRatio < BAILOUT_MIN_CULL_RATIO) {
       stats.bailedOut = true;
       return null;
     }

@@ -1,14 +1,18 @@
 import * as THREE from 'three';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { meshField } from './surface-nets.js';
-import { evalCSGFieldInterval } from './interval-eval.js';
+import { evalCSGFieldInterval, setTextBoundsProvider } from './interval-eval.js';
 import { buildOctree, meshOctreeLeaves, resToDepth } from './octree-mesh.js';
 import { nodeChildren, COLOR_MAP, DEFAULT_COLOR, UNSET_COLOR, hexToRgb, DEFAULT_RGB, UNSET_RGB, EMPTY } from './eval/ast-utils.js';
 import { estimateBounds, mergeBounds } from './eval/bounds.js';
 import { evalField } from './eval/sdf-field.js';
 import { addAntiMesh, getAntiCheckerSize, setAntiCheckerSize, getAntiWireframeMode, setAntiWireframeMode, cycleAntiWireframeMode } from './eval/anti-mesh.js';
-import { getTextSDF } from './eval/text-sdf.js';
+import { getTextSDF, getTextSDFBounds } from './eval/text-sdf.js';
 import { getFont } from './eval/font-cache.js';
+
+// Wire up the text bounds provider so the interval evaluator uses actual
+// text SDF geometry extents instead of approximate font metrics.
+setTextBoundsProvider(getTextSDFBounds);
 
 // S-expression AST → Three.js geometry
 // Consumes the structured AST from codegen.js, knows nothing about blocks.

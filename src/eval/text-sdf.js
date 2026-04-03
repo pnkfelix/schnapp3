@@ -86,6 +86,26 @@ export function getTextSDFGrid(content, fontSize, depth, font, resolution) {
            nx: result.nx, ny: result.ny, nz: result.nz, voxelSize: result.voxelSize };
 }
 
+// Look up the cached SDF bounds for a text node.
+// Returns { hw, hh, hd } (half-widths) or null if not cached yet.
+// The interval evaluator uses this to get the actual text geometry extents
+// rather than relying on the approximate font-metric formula.
+export function getTextSDFBounds(content, fontSize, depth, fontName) {
+  const key = cacheKey(content, fontSize, depth, fontName);
+  // Check with various font name formats (font cache key format varies)
+  for (const [k, v] of textSDFCache) {
+    if (k.endsWith(`|${fontSize}|${depth}|${content}`)) {
+      const b = v.bounds;
+      return {
+        hw: Math.max(Math.abs(b.min[0]), Math.abs(b.max[0])),
+        hh: Math.max(Math.abs(b.min[1]), Math.abs(b.max[1])),
+        hd: Math.max(Math.abs(b.min[2]), Math.abs(b.max[2]))
+      };
+    }
+  }
+  return null;
+}
+
 // Clear cache (call if fonts change or memory pressure)
 export function clearTextSDFCache() {
   textSDFCache.clear();

@@ -12,6 +12,12 @@ import {
   imin, imax, imax0, imin0, imax3,
   icos, isin, iatan2, imod, isoftmin, classify
 } from './interval.js';
+// Text bounds provider — set by the caller before building the interval evaluator.
+// Main-thread sets this to getTextSDFBounds (from text-sdf.js).
+// Worker sets this to getTextGridBounds (from csg-field.js).
+// Returns { hw, hh, hd } or null.
+let textBoundsProvider = null;
+export function setTextBoundsProvider(fn) { textBoundsProvider = fn; }
 
 // Result when there's nothing
 const EMPTY_IV = { distance: [1e10, 1e10], polarity: [0, 0] };
@@ -85,9 +91,23 @@ export function evalCSGFieldInterval(node) {
       const content = node[1].content || 'Text';
       const fontSize = node[1].size || 20;
       const depth = node[1].depth || 4;
-      const hw = fontSize * content.length * 0.3;
-      const hh = fontSize * 0.5;
-      const hd = depth / 2;
+      const fontName = node[1].font || 'helvetiker';
+      // Use the actual text SDF grid bounds if available (computed from real geometry).
+      // Fall back to conservative approximation if the SDF hasn't been built yet.
+      const cachedBounds = textBoundsProvider && textBoundsProvider(content, fontSize, depth, fontName);
+      let hw, hh, hd;
+      if (cachedBounds) {
+        hw = cachedBounds.hw;
+        hh = cachedBounds.hh;
+        hd = cachedBounds.hd;
+      } else {
+        // Conservative fallback: wide factor + bevel padding
+        const bevelThickness = Math.min(depth * 0.1, 1);
+        const bevelSize = Math.min(fontSize * 0.03, 0.5);
+        hw = fontSize * content.length * 0.35 + bevelSize;
+        hh = fontSize * 0.55 + bevelSize;
+        hd = depth / 2 + bevelThickness;
+      }
       return (xIv, yIv, zIv) => {
         const qx = isub(iabs(xIv), [hw, hw]);
         const qy = isub(iabs(yIv), [hh, hh]);
