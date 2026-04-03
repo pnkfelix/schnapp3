@@ -46,6 +46,19 @@ export function needsFieldEval(node) {
   return false;
 }
 
+// The text interval evaluator uses a box approximation that incorrectly
+// culls interior regions where letter shapes have gaps. Disable octree
+// for models containing text, matching the worker path (mesh-worker.js).
+function astHasText(node) {
+  if (!node || !Array.isArray(node)) return false;
+  if (node[0] === 'text') return true;
+  const start = (node[1] && typeof node[1] === 'object' && !Array.isArray(node[1])) ? 2 : 1;
+  for (let i = start; i < node.length; i++) {
+    if (astHasText(node[i])) return true;
+  }
+  return false;
+}
+
 let evalStats = null;
 let useOctree = true;
 export function getUseOctree() { return useOctree; }
@@ -283,7 +296,7 @@ function meshCSGNode(node) {
     return Math.abs(distance) + 0.01;
   };
 
-  if (useOctree) {
+  if (useOctree && !astHasText(node)) {
     // ---- Octree-accelerated path ----
     const depth = resToDepth(res);
     const octreeStats = {
