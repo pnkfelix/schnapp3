@@ -1,18 +1,26 @@
 #!/usr/bin/env node
 // Schnapp3 Node.js benchmark harness
 //
-// Replicates the browser's Web Worker rendering path:
-//   parse → expand → evalCSGField → uniform grid (for text models) → surface nets
+// Benchmarks two rendering paths that match the browser's modes:
 //
-// This is the SAME code path the browser uses (mesh-worker.js + csg-field.js),
-// not the main-thread evaluator.js path (which uses octree even for text).
+//   --mode worker      (default) Replicates the Web Worker progressive path
+//                      (mesh-worker.js + csg-field.js). Disables octree for
+//                      text models, uses uniform grid. This is what the browser
+//                      runs by default.
+//
+//   --mode main-thread Replicates the sync main-thread path (evaluator.js).
+//                      Uses octree even for text models. In the browser, this
+//                      is what runs when progressive mode is toggled off
+//                      (command: "progressive").
 //
 // Usage:
-//   npm run bench                    # run benchmark, compare against reference
-//   npm run bench -- --update        # regenerate reference snapshot
-//   npm run bench -- --resolution 64 # override resolution (default: 48 for fast, 256 for full)
-//   npm run bench -- --model NAME    # use a named model (default: "hello-twist")
-//   npm run bench -- --full          # run at resolution 256 (the real target)
+//   npm run bench                              # worker mode, res 48, verify snapshot
+//   npm run bench -- --full                    # worker mode, res 256
+//   npm run bench -- --mode main-thread        # main-thread mode, res 48
+//   npm run bench -- --mode main-thread --full # main-thread mode, res 256
+//   npm run bench -- --update                  # regenerate reference snapshot
+//   npm run bench -- --resolution 128          # custom resolution
+//   npm run bench -- --model simple-csg        # different model
 
 import fs from 'fs';
 import path from 'path';
@@ -20,9 +28,13 @@ import { fileURLToPath } from 'url';
 import { Font } from 'three/addons/loaders/FontLoader.js';
 import { parseSExpr } from '../src/parser.js';
 import { expandAST } from '../src/expand.js';
-import { evalCSGField, estimateBounds, UNSET_COLOR, UNSET_RGB, setTextSDFGrids } from '../src/csg-field.js';
+// Worker path imports
+import { evalCSGField, estimateBounds as estimateBoundsCSG, UNSET_COLOR, UNSET_RGB, setTextSDFGrids } from '../src/csg-field.js';
 import { evalCSGFieldInterval } from '../src/interval-eval.js';
 import { buildOctree, meshOctreeLeavesRaw, meshFieldRaw, resToDepth } from '../src/octree-core.js';
+// Main-thread path imports
+import { evaluate, setResolution, setUseOctree } from '../src/evaluator.js';
+// Shared
 import { injectFont } from '../src/eval/font-cache.js';
 import { getTextSDFGrid } from '../src/eval/text-sdf.js';
 
@@ -99,13 +111,14 @@ function collectTextSDFGrids(node, font, resolution) {
   return grids;
 }
 
-// ---- Worker-equivalent pipeline ----
-// Replicates mesh-worker.js logic exactly
+// ============================================================
+// Mode: worker — replicates mesh-worker.js logic exactly
+// ============================================================
 
 function runWorkerPipeline(ast, depth) {
   const t0 = performance.now();
 
-  const bounds = estimateBounds(ast);
+  const bounds = estimateBoundsCSG(ast);
   const csgField = evalCSGField(ast);
 
   const solidField = (x, y, z) => {
@@ -160,13 +173,11 @@ function runWorkerPipeline(ast, depth) {
   }
 
   if (!usedOctree) {
-    // Uniform fallback at full requested resolution — same as mesh-worker.js
     const fallbackRes = 1 << depth;
     solidRaw = meshFieldRaw(solidField, bounds, fallbackRes, solidColorField);
     stats.pointEvals = (fallbackRes + 1) ** 3;
   }
 
-  // Anti-solid (always uniform, capped at reasonable res) — same as mesh-worker.js
   const antiRes = Math.min(1 << depth, 48);
   const antiRaw = meshFieldRaw(antiField, bounds, antiRes, null);
   stats.pointEvals += (antiRes + 1) ** 3;
@@ -183,24 +194,58 @@ function runWorkerPipeline(ast, depth) {
   };
 }
 
+// ============================================================
+// Mode: main-thread — replicates evaluator.js sync path
+// ============================================================
+
+function runMainThreadPipeline(ast, resolution) {
+  setResolution(resolution);
+  setUseOctree(true);
+
+  const t0 = performance.now();
+  const { group, stats } = evaluate(ast);
+  const elapsed = Math.round(performance.now() - t0);
+
+  return { group, stats, elapsed };
+}
+
 // ---- Snapshot helpers ----
 
-function extractMeshData(result) {
+function extractWorkerMeshData(result) {
   const meshes = [];
   for (const key of ['solid', 'anti']) {
     const raw = result[key];
     if (!raw || !raw.positions || raw.positions.length === 0) continue;
-    const vertexCount = raw.positions.length / 3;
-    const faceCount = raw.faces.length / 3;
     meshes.push({
       label: key,
-      vertexCount,
-      faceCount,
+      vertexCount: raw.positions.length / 3,
+      faceCount: raw.faces.length / 3,
       positions: Array.from(raw.positions.slice(0, Math.min(300, raw.positions.length))),
       positionHash: hashFloat32(raw.positions),
       indexHash: hashArray(raw.faces),
     });
   }
+  return meshes;
+}
+
+function extractMainThreadMeshData(group) {
+  const meshes = [];
+  group.traverse(child => {
+    if (child.isMesh && child.geometry) {
+      const geo = child.geometry;
+      const pos = geo.getAttribute('position');
+      const idx = geo.getIndex();
+      if (!pos || pos.count === 0) return;
+      meshes.push({
+        label: 'mesh',
+        vertexCount: pos.count,
+        faceCount: idx ? idx.count / 3 : 0,
+        positions: Array.from(pos.array.slice(0, Math.min(300, pos.array.length))),
+        positionHash: hashFloat32(pos.array),
+        indexHash: idx ? hashArray(idx.array) : '0',
+      });
+    }
+  });
   return meshes;
 }
 
@@ -221,19 +266,19 @@ function hashArray(arr) {
   return h.toString(16);
 }
 
-function snapshotPath(modelName, resolution) {
-  return path.join(SNAPSHOT_DIR, `${modelName}-res${resolution}.json`);
+function snapshotPath(modelName, resolution, mode) {
+  return path.join(SNAPSHOT_DIR, `${modelName}-res${resolution}-${mode}.json`);
 }
 
-function saveSnapshot(modelName, resolution, data) {
+function saveSnapshot(modelName, resolution, mode, data) {
   fs.mkdirSync(SNAPSHOT_DIR, { recursive: true });
-  const file = snapshotPath(modelName, resolution);
+  const file = snapshotPath(modelName, resolution, mode);
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
   console.log(`  Snapshot saved: ${file}`);
 }
 
-function loadSnapshot(modelName, resolution) {
-  const file = snapshotPath(modelName, resolution);
+function loadSnapshot(modelName, resolution, mode) {
+  const file = snapshotPath(modelName, resolution, mode);
   if (!fs.existsSync(file)) return null;
   return JSON.parse(fs.readFileSync(file, 'utf-8'));
 }
@@ -285,6 +330,14 @@ async function main() {
   const modelIdx = args.indexOf('--model');
   if (modelIdx >= 0 && args[modelIdx + 1]) modelName = args[modelIdx + 1];
 
+  let mode = 'worker';
+  const modeIdx = args.indexOf('--mode');
+  if (modeIdx >= 0 && args[modeIdx + 1]) mode = args[modeIdx + 1];
+  if (mode !== 'worker' && mode !== 'main-thread') {
+    console.error(`Unknown mode: "${mode}". Available: worker, main-thread`);
+    process.exit(1);
+  }
+
   const modelSrc = MODELS[modelName];
   if (!modelSrc) {
     console.error(`Unknown model: "${modelName}". Available: ${Object.keys(MODELS).join(', ')}`);
@@ -295,7 +348,7 @@ async function main() {
   const effectiveRes = 1 << depth;
 
   console.log(`Model: ${modelName} | Resolution: ${resolution} (depth ${depth}, effective ${effectiveRes})`);
-  console.log(`Mode: ${update ? 'UPDATE' : 'VERIFY'} | Path: worker-equivalent (csg-field.js)`);
+  console.log(`Mode: ${mode} | Snapshot: ${update ? 'UPDATE' : 'VERIFY'}`);
   console.log();
 
   // Load fonts
@@ -308,53 +361,90 @@ async function main() {
   const tParse = performance.now() - t0;
   console.log(`Parse + expand: ${tParse.toFixed(1)}ms`);
 
-  // Pre-compute text SDF grids (browser does this on main thread before sending to worker)
-  const hasText = astHasText(ast);
-  let tTextSDF = 0;
-  if (hasText) {
-    const t = performance.now();
-    const textGrids = collectTextSDFGrids(ast, loadedFonts['helvetiker'], 50);
-    setTextSDFGrids(textGrids);
-    tTextSDF = performance.now() - t;
-    console.log(`Text SDF grids: ${tTextSDF.toFixed(0)}ms (${Object.keys(textGrids).length} grids)`);
-  }
+  let meshData;
+  let pipelineMs;
 
-  // Bounds estimation
-  const t1 = performance.now();
-  const bounds = estimateBounds(ast);
-  const tBounds = performance.now() - t1;
-  console.log(`Bounds: [${bounds.min.map(v => v.toFixed(1))}] to [${bounds.max.map(v => v.toFixed(1))}]`);
+  if (mode === 'worker') {
+    // Pre-compute text SDF grids (browser does this on main thread before sending to worker)
+    const hasText = astHasText(ast);
+    let tTextSDF = 0;
+    if (hasText) {
+      const t = performance.now();
+      const textGrids = collectTextSDFGrids(ast, loadedFonts['helvetiker'], 50);
+      setTextSDFGrids(textGrids);
+      tTextSDF = performance.now() - t;
+      console.log(`Text SDF grids: ${tTextSDF.toFixed(0)}ms (${Object.keys(textGrids).length} grids)`);
+    }
 
-  // Run the worker-equivalent pipeline
-  console.log();
-  console.log(`Running worker-equivalent pipeline...`);
-  if (hasText) console.log(`  (text detected → octree DISABLED, using uniform grid)`);
+    console.log();
+    console.log(`Running worker-equivalent pipeline...`);
+    if (hasText) console.log(`  (text detected → octree DISABLED, using uniform grid)`);
 
-  const result = runWorkerPipeline(ast, depth);
+    const result = runWorkerPipeline(ast, depth);
+    pipelineMs = result.elapsed;
 
-  const s = result.stats;
-  console.log(`  Time: ${result.elapsed}ms`);
-  console.log(`  Point evals: ${s.pointEvals.toLocaleString()}`);
-  console.log(`  Octree: ${s.usedOctree ? 'YES' : 'NO'}${s.bailedOut ? ' (bailed out)' : ''}`);
+    const s = result.stats;
+    console.log(`  Time: ${result.elapsed}ms`);
+    console.log(`  Point evals: ${s.pointEvals.toLocaleString()}`);
+    console.log(`  Octree: ${s.usedOctree ? 'YES' : 'NO'}${s.bailedOut ? ' (bailed out)' : ''}`);
 
-  // Extract mesh data for comparison
-  const meshData = extractMeshData(result);
-  console.log();
-  console.log(`Output: ${meshData.length} mesh(es)`);
-  for (const m of meshData) {
-    console.log(`  ${m.label}: ${m.vertexCount} verts, ${m.faceCount} faces`);
+    meshData = extractWorkerMeshData(result);
+    console.log();
+    console.log(`Output: ${meshData.length} mesh(es)`);
+    for (const m of meshData) {
+      console.log(`  ${m.label}: ${m.vertexCount} verts, ${m.faceCount} faces`);
+    }
+
+    // Summary
+    console.log();
+    console.log('--- Timing Summary ---');
+    console.log(`  Parse:      ${tParse.toFixed(1)}ms`);
+    if (tTextSDF > 0) console.log(`  Text SDF:   ${tTextSDF.toFixed(0)}ms`);
+    console.log(`  Pipeline:   ${result.elapsed}ms`);
+    console.log(`  Total:      ${Math.round(tParse + tTextSDF + result.elapsed)}ms`);
+
+  } else {
+    // main-thread mode
+    console.log();
+    console.log(`Running main-thread pipeline (evaluator.js, octree enabled)...`);
+
+    const result = runMainThreadPipeline(ast, resolution);
+    pipelineMs = result.elapsed;
+
+    console.log(`  Time: ${result.elapsed}ms`);
+    console.log(`  Stats: ${result.stats.nodes} nodes, ${result.stats.voxels.toLocaleString()} voxel evals`);
+    if (result.stats.octree) {
+      const o = result.stats.octree;
+      const pct = o.nodesVisited > 0
+        ? Math.round(100 * (o.nodesCulledOutside + o.nodesCulledInside) / o.nodesVisited)
+        : 0;
+      console.log(`  Octree: ${o.leafCells} leaves, ${pct}% culled`);
+    }
+
+    meshData = extractMainThreadMeshData(result.group);
+    console.log();
+    console.log(`Output: ${meshData.length} mesh(es)`);
+    for (const m of meshData) {
+      console.log(`  ${m.label}: ${m.vertexCount} verts, ${m.faceCount} faces`);
+    }
+
+    console.log();
+    console.log('--- Timing Summary ---');
+    console.log(`  Parse:      ${tParse.toFixed(1)}ms`);
+    console.log(`  Pipeline:   ${result.elapsed}ms`);
+    console.log(`  Total:      ${Math.round(tParse + result.elapsed)}ms`);
   }
 
   // Snapshot comparison
   console.log();
   if (update) {
-    saveSnapshot(modelName, resolution, meshData);
+    saveSnapshot(modelName, resolution, mode, meshData);
     console.log('Reference snapshot updated.');
   } else {
-    const reference = loadSnapshot(modelName, resolution);
+    const reference = loadSnapshot(modelName, resolution, mode);
     if (!reference) {
       console.log('No reference snapshot found. Run with --update to create one.');
-      saveSnapshot(modelName, resolution, meshData);
+      saveSnapshot(modelName, resolution, mode, meshData);
     } else {
       const errors = compareSnapshots(meshData, reference);
       if (errors.length === 0) {
@@ -366,14 +456,6 @@ async function main() {
       }
     }
   }
-
-  // Summary
-  console.log();
-  console.log('--- Timing Summary ---');
-  console.log(`  Parse:      ${tParse.toFixed(1)}ms`);
-  if (tTextSDF > 0) console.log(`  Text SDF:   ${tTextSDF.toFixed(0)}ms`);
-  console.log(`  Pipeline:   ${result.elapsed}ms`);
-  console.log(`  Total:      ${Math.round(tParse + tTextSDF + result.elapsed)}ms`);
 }
 
 main().catch(err => {
