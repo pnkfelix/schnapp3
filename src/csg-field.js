@@ -16,6 +16,23 @@ export { estimateBounds };
 let textSDFGrids = {};
 export function setTextSDFGrids(grids) { textSDFGrids = grids || {}; }
 
+// Compute text bounding box from stored SDF grid data.
+// Returns { hw, hh, hd } or null.
+export function getTextGridBounds(content, fontSize, depth, fontName) {
+  // Try to find a matching grid (key format: "fontName|size|depth|content")
+  for (const [key, grid] of Object.entries(textSDFGrids)) {
+    if (key.endsWith(`|${fontSize}|${depth}|${content}`)) {
+      const { ox, oy, oz, nx, ny, nz, voxelSize } = grid;
+      return {
+        hw: Math.max(Math.abs(ox), Math.abs(ox + nx * voxelSize)),
+        hh: Math.max(Math.abs(oy), Math.abs(oy + ny * voxelSize)),
+        hd: Math.max(Math.abs(oz), Math.abs(oz + nz * voxelSize))
+      };
+    }
+  }
+  return null;
+}
+
 // Trilinear interpolation lookup on a raw SDF grid
 function sdfGridLookup(grid, x, y, z) {
   const { sdf, ox, oy, oz, nx, ny, nz, voxelSize } = grid;

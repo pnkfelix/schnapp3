@@ -1,8 +1,8 @@
 [
   {
     "label": "mesh",
-    "vertexCount": 18357,
-    "faceCount": 36792,
+    "vertexCount": 17123,
+    "faceCount": 32270,
     "positions": [
       -18.79938316345215,
       -32.66140365600586,
@@ -305,7 +305,7 @@
       -33.47527313232422,
       -28.328125
     ],
-    "positionHash": "179a5693",
-    "indexHash": "c87b128"
+    "positionHash": "-52e872a0",
+    "indexHash": "6f484796"
   }
 ]

@@ -29,11 +29,13 @@ import { Font } from 'three/addons/loaders/FontLoader.js';
 import { parseSExpr } from '../src/parser.js';
 import { expandAST } from '../src/expand.js';
 // Worker path imports
-import { evalCSGField, estimateBounds as estimateBoundsCSG, UNSET_COLOR, UNSET_RGB, setTextSDFGrids } from '../src/csg-field.js';
-import { evalCSGFieldInterval } from '../src/interval-eval.js';
+import { evalCSGField, estimateBounds as estimateBoundsCSG, UNSET_COLOR, UNSET_RGB, setTextSDFGrids, getTextGridBounds } from '../src/csg-field.js';
+import { evalCSGFieldInterval, setTextBoundsProvider } from '../src/interval-eval.js';
+import { classify } from '../src/interval.js';
 import { buildOctree, meshOctreeLeavesRaw, meshFieldRaw, resToDepth } from '../src/octree-core.js';
 // Main-thread path imports
 import { evaluate, setResolution, setUseOctree } from '../src/evaluator.js';
+import { evalField } from '../src/eval/sdf-field.js';
 // Shared
 import { injectFont } from '../src/eval/font-cache.js';
 import { getTextSDFGrid } from '../src/eval/text-sdf.js';
@@ -112,6 +114,85 @@ function collectTextSDFGrids(node, font, resolution) {
 }
 
 // ============================================================
+// Octree validation: walk the tree and check culled cells
+// against the actual point field to find incorrect culls
+// ============================================================
+
+function validateOctree(solidIntervalField, solidField, bounds, maxDepth) {
+  const minX = bounds.min[0], minY = bounds.min[1], minZ = bounds.min[2];
+  const maxX = bounds.max[0], maxY = bounds.max[1], maxZ = bounds.max[2];
+
+  let wrongInside = 0, wrongOutside = 0;
+  let correctInside = 0, correctOutside = 0;
+  const wrongCells = [];
+
+  function recurse(x0, y0, z0, x1, y1, z1, depth) {
+    const result = solidIntervalField([x0, x1], [y0, y1], [z0, z1]);
+    const cls = classify(result.distance);
+
+    if (cls === 'outside' || cls === 'inside') {
+      // This cell was culled — validate at the leaf level
+      if (depth < maxDepth) {
+        // Recurse to leaf level to check each leaf-sized sub-cell
+        const mx = (x0 + x1) / 2, my = (y0 + y1) / 2, mz = (z0 + z1) / 2;
+        recurse(x0, y0, z0, mx, my, mz, depth + 1);
+        recurse(mx, y0, z0, x1, my, mz, depth + 1);
+        recurse(x0, my, z0, mx, y1, mz, depth + 1);
+        recurse(mx, my, z0, x1, y1, mz, depth + 1);
+        recurse(x0, y0, mz, mx, my, z1, depth + 1);
+        recurse(mx, y0, mz, x1, my, z1, depth + 1);
+        recurse(x0, my, mz, mx, y1, z1, depth + 1);
+        recurse(mx, my, mz, x1, y1, z1, depth + 1);
+        return;
+      }
+      // At leaf level: sample corners to check for sign change
+      const corners = [
+        [x0,y0,z0],[x1,y0,z0],[x0,y1,z0],[x1,y1,z0],
+        [x0,y0,z1],[x1,y0,z1],[x0,y1,z1],[x1,y1,z1]
+      ];
+      const vals = corners.map(([x,y,z]) => solidField(x,y,z));
+      let hasNeg = false, hasPos = false;
+      for (const v of vals) { if (v < 0) hasNeg = true; else hasPos = true; }
+      const hasSignChange = hasNeg && hasPos;
+
+      if (hasSignChange) {
+        if (cls === 'inside') { wrongInside++; }
+        else { wrongOutside++; }
+        if (wrongCells.length < 5) {
+          wrongCells.push({
+            cls, depth,
+            cell: [x0.toFixed(2), y0.toFixed(2), z0.toFixed(2), x1.toFixed(2), y1.toFixed(2), z1.toFixed(2)],
+            vals: vals.map(v => v.toFixed(4)),
+            intervalDist: result.distance.map(v => v.toFixed(4)),
+            intervalPol: result.polarity
+          });
+        }
+      } else {
+        if (cls === 'inside') correctInside++;
+        else correctOutside++;
+      }
+      return;
+    }
+
+    // Ambiguous — subdivide
+    if (depth >= maxDepth) return; // leaf, not culled
+    const mx = (x0 + x1) / 2, my = (y0 + y1) / 2, mz = (z0 + z1) / 2;
+    recurse(x0, y0, z0, mx, my, mz, depth + 1);
+    recurse(mx, y0, z0, x1, my, mz, depth + 1);
+    recurse(x0, my, z0, mx, y1, mz, depth + 1);
+    recurse(mx, my, z0, x1, y1, mz, depth + 1);
+    recurse(x0, y0, mz, mx, my, z1, depth + 1);
+    recurse(mx, y0, mz, x1, my, z1, depth + 1);
+    recurse(x0, my, mz, mx, y1, z1, depth + 1);
+    recurse(mx, my, mz, x1, y1, z1, depth + 1);
+  }
+
+  recurse(minX, minY, minZ, maxX, maxY, maxZ, 0);
+
+  return { wrongInside, wrongOutside, correctInside, correctOutside, wrongCells };
+}
+
+// ============================================================
 // Mode: worker — replicates mesh-worker.js logic exactly
 // ============================================================
 
@@ -145,9 +226,8 @@ function runWorkerPipeline(ast, depth) {
   let usedOctree = false;
   let bailedOut = false;
 
-  // Disable octree for ASTs containing text nodes — same as mesh-worker.js
-  const hasText = astHasText(ast);
-  if (!hasText) {
+  // Enable octree for all models (text bounds now use actual SDF grid extents)
+  {
     try {
       const intervalField = evalCSGFieldInterval(ast);
       const solidIntervalField = (xIv, yIv, zIv) => {
@@ -190,7 +270,6 @@ function runWorkerPipeline(ast, depth) {
     stats: { ...stats, usedOctree, bailedOut },
     elapsed,
     bounds,
-    hasText,
   };
 }
 
@@ -198,9 +277,9 @@ function runWorkerPipeline(ast, depth) {
 // Mode: main-thread — replicates evaluator.js sync path
 // ============================================================
 
-function runMainThreadPipeline(ast, resolution) {
+function runMainThreadPipeline(ast, resolution, octree = true) {
   setResolution(resolution);
-  setUseOctree(true);
+  setUseOctree(octree);
 
   const t0 = performance.now();
   const { group, stats } = evaluate(ast);
@@ -321,6 +400,8 @@ async function main() {
   const args = process.argv.slice(2);
   const update = args.includes('--update');
   const full = args.includes('--full');
+  const noOctree = args.includes('--no-octree');
+  const diagnose = args.includes('--diagnose');
 
   let resolution = full ? 256 : 48;
   const resIdx = args.indexOf('--resolution');
@@ -372,13 +453,14 @@ async function main() {
       const t = performance.now();
       const textGrids = collectTextSDFGrids(ast, loadedFonts['helvetiker'], 50);
       setTextSDFGrids(textGrids);
+      // Wire up the bounds provider so interval evaluator uses actual grid extents
+      setTextBoundsProvider(getTextGridBounds);
       tTextSDF = performance.now() - t;
       console.log(`Text SDF grids: ${tTextSDF.toFixed(0)}ms (${Object.keys(textGrids).length} grids)`);
     }
 
     console.log();
     console.log(`Running worker-equivalent pipeline...`);
-    if (hasText) console.log(`  (text detected → octree DISABLED, using uniform grid)`);
 
     const result = runWorkerPipeline(ast, depth);
     pipelineMs = result.elapsed;
@@ -405,10 +487,11 @@ async function main() {
 
   } else {
     // main-thread mode
+    const useOctreeFlag = !noOctree;
     console.log();
-    console.log(`Running main-thread pipeline (evaluator.js, octree enabled)...`);
+    console.log(`Running main-thread pipeline (evaluator.js, octree ${useOctreeFlag ? 'enabled' : 'DISABLED'})...`);
 
-    const result = runMainThreadPipeline(ast, resolution);
+    const result = runMainThreadPipeline(ast, resolution, useOctreeFlag);
     pipelineMs = result.elapsed;
 
     console.log(`  Time: ${result.elapsed}ms`);
@@ -433,6 +516,126 @@ async function main() {
     console.log(`  Parse:      ${tParse.toFixed(1)}ms`);
     console.log(`  Pipeline:   ${result.elapsed}ms`);
     console.log(`  Total:      ${Math.round(tParse + result.elapsed)}ms`);
+  }
+
+  // Diagnostic mode: compare main-thread with/without octree AND against worker
+  if (diagnose) {
+    console.log();
+    console.log('=== DIAGNOSTIC MODE ===');
+    console.log();
+
+    // Run main-thread without octree
+    console.log('Running main-thread WITHOUT octree...');
+    const noOctreeResult = runMainThreadPipeline(ast, resolution, false);
+    const noOctreeMesh = extractMainThreadMeshData(noOctreeResult.group);
+    console.log(`  main-thread (no octree): ${noOctreeMesh.map(m => `${m.vertexCount} verts, ${m.faceCount} faces`).join('; ')}`);
+
+    // Run main-thread with octree
+    console.log('Running main-thread WITH octree...');
+    const octreeResult = runMainThreadPipeline(ast, resolution, true);
+    const octreeMesh = extractMainThreadMeshData(octreeResult.group);
+    console.log(`  main-thread (octree):    ${octreeMesh.map(m => `${m.vertexCount} verts, ${m.faceCount} faces`).join('; ')}`);
+
+    // Run worker path
+    const hasText = astHasText(ast);
+    if (hasText) {
+      const textGrids = collectTextSDFGrids(ast, loadedFonts['helvetiker'], 50);
+      setTextSDFGrids(textGrids);
+    }
+    const workerResult = runWorkerPipeline(ast, depth);
+    const workerMesh = extractWorkerMeshData(workerResult);
+    console.log(`  worker (uniform):        ${workerMesh.map(m => `${m.vertexCount} verts, ${m.faceCount} faces`).join('; ')}`);
+
+    console.log();
+
+    // Compare main-thread no-octree vs worker
+    const noOctreeTotal = noOctreeMesh.reduce((s, m) => s + m.vertexCount, 0);
+    const workerTotal = workerMesh.reduce((s, m) => s + m.vertexCount, 0);
+    const octreeTotal = octreeMesh.reduce((s, m) => s + m.vertexCount, 0);
+
+    if (noOctreeTotal === workerTotal) {
+      console.log('RESULT: main-thread (no octree) == worker → Bug is in OCTREE path');
+    } else {
+      console.log(`RESULT: main-thread (no octree) != worker (${noOctreeTotal} vs ${workerTotal})`);
+      console.log('  → Bug is in SDF FIELD EVALUATION (different text SDF implementations)');
+
+      // Sample both SDF fields at the same points to find divergence
+      console.log();
+      console.log('Comparing SDF field values...');
+      const mainField = evalField(ast);
+      const workerField = evalCSGField(ast);
+
+      let maxDiff = 0, maxDiffPoint = null;
+      let samples = 0;
+      const bounds = workerResult.bounds;
+      const step = (bounds.max[0] - bounds.min[0]) / 20;
+      for (let x = bounds.min[0]; x <= bounds.max[0]; x += step) {
+        for (let y = bounds.min[1]; y <= bounds.max[1]; y += step) {
+          for (let z = bounds.min[2]; z <= bounds.max[2]; z += step) {
+            const mainD = mainField(x, y, z);
+            const workerD = workerField(x, y, z).distance;
+            const diff = Math.abs(mainD - workerD);
+            if (diff > maxDiff) {
+              maxDiff = diff;
+              maxDiffPoint = { x, y, z, mainD, workerD };
+            }
+            samples++;
+          }
+        }
+      }
+      console.log(`  Sampled ${samples} points, max SDF difference: ${maxDiff.toExponential(3)}`);
+      if (maxDiffPoint) {
+        console.log(`  Worst point: (${maxDiffPoint.x.toFixed(2)}, ${maxDiffPoint.y.toFixed(2)}, ${maxDiffPoint.z.toFixed(2)})`);
+        console.log(`    main-thread: ${maxDiffPoint.mainD.toFixed(6)}, worker: ${maxDiffPoint.workerD.toFixed(6)}`);
+      }
+    }
+
+    if (octreeTotal !== noOctreeTotal) {
+      console.log();
+      console.log(`Octree culling impact: ${octreeTotal} verts (octree) vs ${noOctreeTotal} verts (no octree)`);
+      console.log(`  Difference: ${noOctreeTotal - octreeTotal} verts (${((1 - octreeTotal/noOctreeTotal) * 100).toFixed(1)}% lost)`);
+
+      if (octreeResult.stats.octree) {
+        const o = octreeResult.stats.octree;
+        console.log(`  Octree stats: ${o.nodesVisited} visited, ${o.nodesCulledOutside} culled-outside, ${o.nodesCulledInside} culled-inside`);
+      }
+
+      // Validate octree culling against the actual point field
+      console.log();
+      console.log('Validating octree culling decisions...');
+      const bounds = estimateBoundsCSG(ast);
+      const csgField = evalCSGField(ast);
+      const solidField = (x, y, z) => {
+        const { polarity, distance } = csgField(x, y, z);
+        if (polarity > 0) return distance;
+        return Math.abs(distance) + 0.01;
+      };
+      const intervalField = evalCSGFieldInterval(ast);
+      const solidIntervalField = (xIv, yIv, zIv) => {
+        const r = intervalField(xIv, yIv, zIv);
+        if (r.polarity[1] <= 0) return { distance: [0.01, Infinity], polarity: [0, 0] };
+        if (r.polarity[0] > 0) return r;
+        return {
+          distance: [Math.min(r.distance[0], -0.01), Math.max(r.distance[1], 0.01)],
+          polarity: r.polarity
+        };
+      };
+
+      const validation = validateOctree(solidIntervalField, solidField, bounds, resToDepth(resolution));
+      console.log(`  Correct: ${validation.correctInside} inside, ${validation.correctOutside} outside`);
+      console.log(`  WRONG:   ${validation.wrongInside} inside, ${validation.wrongOutside} outside`);
+      if (validation.wrongCells.length > 0) {
+        console.log('  Sample wrong cells:');
+        for (const c of validation.wrongCells) {
+          console.log(`    ${c.cls} at [${c.cell}]`);
+          console.log(`      interval dist: [${c.intervalDist}], pol: [${c.intervalPol}]`);
+          console.log(`      point vals: [${c.vals}]`);
+        }
+      }
+    }
+
+    console.log();
+    console.log('=== END DIAGNOSTIC ===');
   }
 
   // Snapshot comparison
