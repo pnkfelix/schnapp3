@@ -10,7 +10,7 @@ import { getFont } from './eval/font-cache.js';
 
 // Cache-bust: force browser to re-fetch worker module (and its imports)
 // when code changes. Bump this version string after editing worker-side files.
-const WORKER_VERSION = '10';
+const WORKER_VERSION = '12';
 const WORKER_URL = new URL(`./mesh-worker.js?v=${WORKER_VERSION}`, import.meta.url);
 
 // Pool of reusable workers (one per hardware thread, capped)
@@ -186,7 +186,9 @@ export function meshProgressive(ast, targetDepth, useOctree, onResult, onStatus,
         meshTime: data.elapsed,
         octree: data.stats,
         depth: data.depth,
-        resolution: 1 << data.depth
+        resolution: 1 << data.depth,
+        timing: data.timing,
+        probes: data.probes
       }, isFinal);
     };
   }

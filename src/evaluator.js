@@ -56,7 +56,7 @@ export function getUseOctree() { return useOctree; }
 export function setUseOctree(v) { useOctree = v; }
 
 export function evaluate(ast) {
-  evalStats = { nodes: 0, voxels: 0, meshTime: 0, resolution: csgResolution, octree: null };
+  evalStats = { nodes: 0, voxels: 0, meshTime: 0, resolution: csgResolution, octree: null, timing: {}, probes: [] };
   const t0 = performance.now();
   if (!ast) return { group: new THREE.Group(), stats: evalStats };
   const result = evalNode(ast);
@@ -199,7 +199,8 @@ function evalNode(node) {
       const result = group.children.length === 1 ? group.children[0] : group;
       return tagBlockId(result, node);
     }
-    case 'union': {
+    case 'union':
+    case 'timing': {
       if (needsFieldEval(node)) {
         return tagBlockId(meshCSGNode(node), node);
       }
@@ -247,6 +248,7 @@ export function setResolution(n) { csgResolution = Math.max(16, n); }
 
 // Sample the CSG provenance field at each vertex and store as userData
 function stampProvenance(mesh, csgField) {
+  const t1 = performance.now();
   const pos = mesh.geometry.getAttribute('position');
   if (!pos) return;
   const blockIds = new Array(pos.count);
@@ -255,6 +257,9 @@ function stampProvenance(mesh, csgField) {
     blockIds[i] = r.blockId || null;
   }
   mesh.userData.vertexBlockIds = blockIds;
+  if (evalStats && evalStats.timing) {
+    evalStats.timing.provenance = (evalStats.timing.provenance || 0) + Math.round((performance.now() - t1) * 100) / 100;
+  }
 }
 
 // Build a provenance field from an AST for post-processing (progressive path)
@@ -265,8 +270,16 @@ export function buildProvenanceField(ast) {
 
 function meshCSGNode(node) {
   const res = csgResolution;
+  const timing = evalStats ? evalStats.timing : null;
+
+  let t1 = performance.now();
   const bounds = estimateBounds(node);
+  if (timing) timing.bounds = Math.round((performance.now() - t1) * 100) / 100;
+
+  t1 = performance.now();
   const csgField = evalCSGField(node);
+  if (timing) timing.fieldBuild = Math.round((performance.now() - t1) * 100) / 100;
+
   const group = new THREE.Group();
 
   // Solid field: positive polarity → use SDF distance; otherwise push outside
@@ -297,12 +310,14 @@ function meshCSGNode(node) {
 
     // Build interval evaluator for solid field
     let intervalField;
+    t1 = performance.now();
     try {
       intervalField = evalCSGFieldInterval(node);
     } catch (e) {
       console.warn('Octree interval eval failed, falling back to uniform grid:', e);
       return meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField);
     }
+    if (timing) timing.intervalBuild = Math.round((performance.now() - t1) * 100) / 100;
 
     // For the solid mesh, the actual field is:
     //   polarity > 0  → distance  (the SDF)
@@ -325,7 +340,9 @@ function meshCSGNode(node) {
       };
     };
 
+    t1 = performance.now();
     const leaves = buildOctree(solidIntervalField, bounds, depth, octreeStats);
+    if (timing) timing.octreeBuild = Math.round((performance.now() - t1) * 100) / 100;
 
     // buildOctree returns null if it bailed out (interval arithmetic wasn't helping)
     if (leaves === null) {
@@ -336,7 +353,9 @@ function meshCSGNode(node) {
       return meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField);
     }
 
+    t1 = performance.now();
     const solidGeo = meshOctreeLeaves(leaves, solidField, bounds, depth, solidColorField, octreeStats);
+    if (timing) timing.solidMesh = Math.round((performance.now() - t1) * 100) / 100;
 
     if (solidGeo.index && solidGeo.index.count > 0) {
       const solidMat = new THREE.MeshStandardMaterial({
@@ -350,7 +369,9 @@ function meshCSGNode(node) {
 
     // Anti-solid: use uniform grid (anti-solids are typically small/rare)
     if (evalStats) evalStats.voxels += (res + 1) ** 3;
+    t1 = performance.now();
     const antiGeo = meshField(antiField, bounds, res);
+    if (timing) timing.antiMesh = Math.round((performance.now() - t1) * 100) / 100;
     if (antiGeo.index && antiGeo.index.count > 0) {
       addAntiMesh(group, antiGeo);
     }
@@ -372,9 +393,12 @@ function meshCSGNode(node) {
 // Original uniform-grid meshing (fallback)
 function meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField) {
   if (evalStats) evalStats.voxels += (res + 1) ** 3;
+  const timing = evalStats ? evalStats.timing : null;
   const group = new THREE.Group();
 
+  let t1 = performance.now();
   const solidGeo = meshField(solidField, bounds, res, solidColorField);
+  if (timing) timing.solidMesh = Math.round((performance.now() - t1) * 100) / 100;
   if (solidGeo.index && solidGeo.index.count > 0) {
     const solidMat = new THREE.MeshStandardMaterial({
       vertexColors: true,
@@ -385,7 +409,9 @@ function meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorF
     group.add(solidMesh);
   }
 
+  t1 = performance.now();
   const antiGeo = meshField(antiField, bounds, res);
+  if (timing) timing.antiMesh = Math.round((performance.now() - t1) * 100) / 100;
   if (antiGeo.index && antiGeo.index.count > 0) {
     addAntiMesh(group, antiGeo);
   }
@@ -513,6 +539,23 @@ function evalCSGField(node) {
       if (children.length === 0) return () => EMPTY;
       const fields = children.map(c => evalCSGField(c));
       return (x, y, z) => csgUnion(fields.map(f => f(x, y, z)));
+    }
+    case 'timing': {
+      const p = node[1];
+      const label = (p && p.label) || `timing-${bid || '?'}`;
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY;
+      const fields = children.map(c => evalCSGField(c));
+      const probe = { label, calls: 0, timeMs: 0 };
+      if (evalStats) evalStats.probes.push(probe);
+      const inner = (x, y, z) => csgUnion(fields.map(f => f(x, y, z)));
+      return (x, y, z) => {
+        probe.calls++;
+        const t = performance.now();
+        const r = inner(x, y, z);
+        probe.timeMs += performance.now() - t;
+        return r;
+      };
     }
     case 'intersect': {
       const children = nodeChildren(node);

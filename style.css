@@ -462,6 +462,10 @@ html, body {
 .block--complement, .palette-item--complement {
   background: #668;
 }
+.block--timing, .palette-item--timing {
+  background: #998a00;
+  border: 2px dashed #ccbb33;
+}
 .block--rotate, .palette-item--rotate {
   background: #a5c;
 }
@@ -695,7 +699,7 @@ html, body {
 }
 
 .hud-entry {
-  white-space: nowrap;
+  white-space: pre;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   padding: 2px 0;
 }

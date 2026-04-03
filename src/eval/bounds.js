@@ -177,8 +177,9 @@ export function estimateBounds(node, offset = [0, 0, 0]) {
     }
     case 'union':
     case 'intersect':
-    case 'fuse': {
-      const start = type === 'fuse' ? 2 : 1;
+    case 'fuse':
+    case 'timing': {
+      const start = (type === 'fuse' || type === 'timing') ? 2 : 1;
       const children = node.slice(start);
       const merged = mergeBounds(children.map(c => estimateBounds(c, offset)));
       if (type === 'fuse') {

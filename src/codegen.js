@@ -319,6 +319,16 @@ function formatNode(node, indent) {
       const p = node[1];
       return `${pad}(scalar ${fmtParam(p.value)})`;
     }
+    case 'timing': {
+      const p = node[1];
+      const label = (p && p.label) || '';
+      const children = node.slice(2);
+      if (children.length === 0) {
+        return `${pad}(timing "${label}")`;
+      }
+      const childStrs = children.map(c => formatNode(c, indent + 1)).join('\n');
+      return `${pad}(timing "${label}"\n${childStrs})`;
+    }
     default:
       return `${pad}(${type})`;
   }

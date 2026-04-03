@@ -33,6 +33,11 @@ export function getTextGridBounds(content, fontSize, depth, fontName) {
   return null;
 }
 
+// Timing probes collected during evalCSGField (for worker reporting)
+let timingProbes = [];
+export function resetTimingProbes() { timingProbes = []; }
+export function getTimingProbes() { return timingProbes; }
+
 // Trilinear interpolation lookup on a raw SDF grid
 function sdfGridLookup(grid, x, y, z) {
   const { sdf, ox, oy, oz, nx, ny, nz, voxelSize } = grid;
@@ -182,6 +187,23 @@ export function evalCSGField(node) {
       if (children.length === 0) return () => EMPTY;
       const fields = children.map(c => evalCSGField(c));
       return (x, y, z) => csgUnion(fields.map(f => f(x, y, z)));
+    }
+    case 'timing': {
+      const p = node[1];
+      const label = (p && p.label) || 'timing';
+      const children = node.slice(2);
+      if (children.length === 0) return () => EMPTY;
+      const fields = children.map(c => evalCSGField(c));
+      const probe = { label, calls: 0, timeMs: 0 };
+      timingProbes.push(probe);
+      const inner = (x, y, z) => csgUnion(fields.map(f => f(x, y, z)));
+      return (x, y, z) => {
+        probe.calls++;
+        const t = performance.now();
+        const r = inner(x, y, z);
+        probe.timeMs += performance.now() - t;
+        return r;
+      };
     }
     case 'intersect': {
       const children = nodeChildren(node);

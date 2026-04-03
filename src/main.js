@@ -55,6 +55,25 @@ function appendHudEntry(stats) {
   } else {
     text += ` | uniform grid`;
   }
+  // Timing breakdown
+  if (stats.timing) {
+    const t = stats.timing;
+    const parts = [];
+    if (t.fieldBuild != null) parts.push(`field:${t.fieldBuild}ms`);
+    if (t.intervalBuild != null) parts.push(`interval:${t.intervalBuild}ms`);
+    if (t.octreeBuild != null) parts.push(`octree:${t.octreeBuild}ms`);
+    if (t.solidMesh != null) parts.push(`solid:${t.solidMesh}ms`);
+    if (t.antiMesh != null) parts.push(`anti:${t.antiMesh}ms`);
+    if (t.provenance != null) parts.push(`prov:${t.provenance}ms`);
+    if (parts.length > 0) text += `\n  ⏱ ${parts.join(' | ')}`;
+  }
+  // Timing probes from timing blocks
+  if (stats.probes && stats.probes.length > 0) {
+    for (const p of stats.probes) {
+      const ms = Math.round(p.timeMs * 100) / 100;
+      text += `\n  🔬 "${p.label}": ${p.calls.toLocaleString()} calls, ${ms}ms total`;
+    }
+  }
   entry.textContent = text;
   hudEl.appendChild(entry);
   // Trim old entries
@@ -180,7 +199,9 @@ async function runGPUPipeline(ast) {
           voxels: stats.octree ? (stats.octree.pointEvals || 0) : 0,
           nodes: stats.octree ? (stats.octree.leafCells || 0) : 0,
           octree: stats.octree,
-          gpu: true
+          gpu: true,
+          timing: stats.timing,
+          probes: stats.probes
         });
       }
       if (isFinal) {
@@ -262,7 +283,9 @@ function runPipeline() {
           resolution: stats.resolution,
           voxels: stats.octree ? (stats.octree.pointEvals || 0) : 0,
           nodes: stats.octree ? (stats.octree.leafCells || 0) : 0,
-          octree: stats.octree
+          octree: stats.octree,
+          timing: stats.timing,
+          probes: stats.probes
         });
       }
       if (isFinal) {
@@ -324,7 +347,9 @@ codeOutput.addEventListener('input', () => {
             appendHudEntry({
               meshTime: stats.meshTime, resolution: stats.resolution,
               voxels: stats.octree ? (stats.octree.pointEvals || 0) : 0,
-              nodes: stats.octree ? (stats.octree.leafCells || 0) : 0, octree: stats.octree
+              nodes: stats.octree ? (stats.octree.leafCells || 0) : 0, octree: stats.octree,
+              timing: stats.timing,
+              probes: stats.probes
             });
           }
           if (isFinal) {

@@ -161,7 +161,8 @@ export function evalCSGFieldInterval(node) {
       const fields = children.map(c => evalCSGFieldInterval(c));
       return (xIv, yIv, zIv) => ivUnion(fields.map(f => f(xIv, yIv, zIv)));
     }
-    case 'union': {
+    case 'union':
+    case 'timing': {
       const children = nodeChildren(node);
       if (children.length === 0) return () => EMPTY_IV;
       const fields = children.map(c => evalCSGFieldInterval(c));

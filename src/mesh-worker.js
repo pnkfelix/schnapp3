@@ -4,7 +4,7 @@
 
 import { evalCSGFieldInterval, setTextBoundsProvider } from './interval-eval.js';
 import { buildOctree, meshOctreeLeavesRaw, meshFieldRaw, resToDepth } from './octree-core.js';
-import { evalCSGField, estimateBounds, UNSET_COLOR, UNSET_RGB, setTextSDFGrids, getTextGridBounds } from './csg-field.js';
+import { evalCSGField, estimateBounds, UNSET_COLOR, UNSET_RGB, setTextSDFGrids, getTextGridBounds, resetTimingProbes, getTimingProbes } from './csg-field.js';
 
 // Wire up the text bounds provider so the interval evaluator can use
 // the actual SDF grid bounds (set via setTextSDFGrids) for text nodes.
@@ -17,11 +17,18 @@ self.onmessage = function(e) {
 
   // Install text SDF grids so evalCSGField can use them
   if (textSDFGrids) setTextSDFGrids(textSDFGrids);
+  resetTimingProbes();
   const t0 = performance.now();
 
   try {
+    const timing = {};
+    let t1 = performance.now();
     const bounds = estimateBounds(ast);
+    timing.bounds = Math.round((performance.now() - t1) * 100) / 100;
+
+    t1 = performance.now();
     const csgField = evalCSGField(ast);
+    timing.fieldBuild = Math.round((performance.now() - t1) * 100) / 100;
 
     const solidField = (x, y, z) => {
       const { polarity, distance } = csgField(x, y, z);
@@ -49,7 +56,10 @@ self.onmessage = function(e) {
 
     if (useOctree) {
       try {
+        t1 = performance.now();
         const intervalField = evalCSGFieldInterval(ast);
+        timing.intervalBuild = Math.round((performance.now() - t1) * 100) / 100;
+
         const solidIntervalField = (xIv, yIv, zIv) => {
           const r = intervalField(xIv, yIv, zIv);
           // No solid in this region — push distance positive
@@ -65,9 +75,14 @@ self.onmessage = function(e) {
           };
         };
 
+        t1 = performance.now();
         const leaves = buildOctree(solidIntervalField, bounds, depth, stats);
+        timing.octreeBuild = Math.round((performance.now() - t1) * 100) / 100;
+
         if (leaves !== null) {
+          t1 = performance.now();
           solidRaw = meshOctreeLeavesRaw(leaves, solidField, bounds, depth, solidColorField, stats);
+          timing.solidMesh = Math.round((performance.now() - t1) * 100) / 100;
           usedOctree = true;
         } else {
           bailedOut = true;
@@ -80,16 +95,27 @@ self.onmessage = function(e) {
     if (!usedOctree) {
       // Uniform fallback at full requested resolution
       const fallbackRes = 1 << depth;
+      t1 = performance.now();
       solidRaw = meshFieldRaw(solidField, bounds, fallbackRes, solidColorField);
+      timing.solidMesh = Math.round((performance.now() - t1) * 100) / 100;
       stats.pointEvals = (fallbackRes + 1) ** 3;
     }
 
     // Anti-solid (always uniform, capped at reasonable res)
     const antiRes = Math.min(1 << depth, 48);
+    t1 = performance.now();
     const antiRaw = meshFieldRaw(antiField, bounds, antiRes, null);
+    timing.antiMesh = Math.round((performance.now() - t1) * 100) / 100;
     stats.pointEvals += (antiRes + 1) ** 3;
 
     const elapsed = Math.round(performance.now() - t0);
+
+    // Collect timing probes from any timing blocks
+    const probes = getTimingProbes().map(p => ({
+      label: p.label,
+      calls: p.calls,
+      timeMs: Math.round(p.timeMs * 100) / 100
+    }));
 
     // Transfer typed arrays for zero-copy
     const transferables = [solidRaw.positions.buffer, solidRaw.normals.buffer];
@@ -104,6 +130,8 @@ self.onmessage = function(e) {
       anti: antiRaw,
       stats: { ...stats, usedOctree, bailedOut },
       elapsed,
+      timing,
+      probes,
       bounds
     }, transferables);
   } catch (err) {

@@ -165,7 +165,8 @@ function compileNode(node, tape) {
       }
       return count > 0 ? 1 : 0;
     }
-    case 'union': {
+    case 'union':
+    case 'timing': {
       const children = nodeChildren(node);
       if (children.length === 0) return 0;
       let count = 0;
