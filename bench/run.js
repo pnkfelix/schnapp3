@@ -501,7 +501,7 @@ async function main() {
       const pct = o.nodesVisited > 0
         ? Math.round(100 * (o.nodesCulledOutside + o.nodesCulledInside) / o.nodesVisited)
         : 0;
-      console.log(`  Octree: ${o.leafCells} leaves, ${pct}% culled`);
+      console.log(`  Octree: ${o.leafCells} leaves, ${pct}% culled${o.shallowCullRatio != null ? ` (shallow: ${(o.shallowCullRatio*100).toFixed(0)}%)` : ''}`);
     }
 
     meshData = extractMainThreadMeshData(result.group);
