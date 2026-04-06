@@ -55,8 +55,66 @@ let useOctree = true;
 export function getUseOctree() { return useOctree; }
 export function setUseOctree(v) { useOctree = v; }
 
+// ---- Subtree cache for CSG meshes ----
+// Caches meshCSGNode results keyed by canonical AST content + resolution.
+// Avoids re-meshing unchanged subtrees when a sibling is edited.
+
+const subtreeCache = new Map();  // cacheKey → { group: THREE.Group, hits: 0 }
+const MAX_CACHE_ENTRIES = 64;
+
+function csgCacheKey(node) {
+  // JSON.stringify excludes non-enumerable _blockId — purely structural
+  return JSON.stringify(node) + '@' + csgResolution;
+}
+
+function deepCloneGroup(group) {
+  const clone = new THREE.Group();
+  for (const child of group.children) {
+    if (child.isMesh) {
+      const geo = child.geometry.clone();
+      const mat = child.material.clone ? child.material.clone() : child.material;
+      const mesh = new THREE.Mesh(geo, mat);
+      if (child.userData.vertexBlockIds) {
+        mesh.userData.vertexBlockIds = child.userData.vertexBlockIds;
+      }
+      if (child.userData.blockId) {
+        mesh.userData.blockId = child.userData.blockId;
+      }
+      clone.add(mesh);
+    } else if (child.isLineSegments) {
+      const geo = child.geometry.clone();
+      const mat = child.material.clone ? child.material.clone() : child.material;
+      clone.add(new THREE.LineSegments(geo, mat));
+    } else if (child.isGroup) {
+      clone.add(deepCloneGroup(child));
+    }
+  }
+  return clone;
+}
+
+function storeCacheEntry(key, group) {
+  if (subtreeCache.size >= MAX_CACHE_ENTRIES) {
+    // Evict least-hit entry
+    let minKey = null, minHits = Infinity;
+    for (const [k, v] of subtreeCache) {
+      if (v.hits < minHits) { minHits = v.hits; minKey = k; }
+    }
+    if (minKey) subtreeCache.delete(minKey);
+  }
+  subtreeCache.set(key, { group: deepCloneGroup(group), hits: 0 });
+  return group;
+}
+
+export function clearSubtreeCache() {
+  subtreeCache.clear();
+}
+
+export function getSubtreeCacheStats() {
+  return { entries: subtreeCache.size, maxEntries: MAX_CACHE_ENTRIES };
+}
+
 export function evaluate(ast) {
-  evalStats = { nodes: 0, voxels: 0, meshTime: 0, resolution: csgResolution, octree: null };
+  evalStats = { nodes: 0, voxels: 0, meshTime: 0, resolution: csgResolution, octree: null, cacheHit: false };
   const t0 = performance.now();
   if (!ast) return { group: new THREE.Group(), stats: evalStats };
   const result = evalNode(ast);
@@ -243,7 +301,7 @@ function evalNode(node) {
 
 let csgResolution = 48;
 export function getResolution() { return csgResolution; }
-export function setResolution(n) { csgResolution = Math.max(16, n); }
+export function setResolution(n) { csgResolution = Math.max(16, n); subtreeCache.clear(); }
 
 // Sample the CSG provenance field at each vertex and store as userData
 function stampProvenance(mesh, csgField) {
@@ -264,6 +322,15 @@ export function buildProvenanceField(ast) {
 }
 
 function meshCSGNode(node) {
+  // Check subtree cache
+  const key = csgCacheKey(node);
+  const cached = subtreeCache.get(key);
+  if (cached) {
+    cached.hits++;
+    if (evalStats) evalStats.cacheHit = true;
+    return deepCloneGroup(cached.group);
+  }
+
   const res = csgResolution;
   const bounds = estimateBounds(node);
   const csgField = evalCSGField(node);
@@ -301,7 +368,7 @@ function meshCSGNode(node) {
       intervalField = evalCSGFieldInterval(node);
     } catch (e) {
       console.warn('Octree interval eval failed, falling back to uniform grid:', e);
-      return meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField);
+      return storeCacheEntry(key, meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField));
     }
 
     // For the solid mesh, the actual field is:
@@ -333,7 +400,7 @@ function meshCSGNode(node) {
         octreeStats.bailedOut = true;
         evalStats.octree = octreeStats;
       }
-      return meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField);
+      return storeCacheEntry(key, meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField));
     }
 
     const solidGeo = meshOctreeLeaves(leaves, solidField, bounds, depth, solidColorField, octreeStats);
@@ -363,10 +430,10 @@ function meshCSGNode(node) {
 
   } else {
     // ---- Original uniform grid path ----
-    return meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField);
+    return storeCacheEntry(key, meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField));
   }
 
-  return group;
+  return storeCacheEntry(key, group);
 }
 
 // Original uniform-grid meshing (fallback)
