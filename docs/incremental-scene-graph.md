@@ -70,6 +70,43 @@ replace them in the live scene.
 
 ### Data structures
 
+**Two-layer architecture (BDD analogy):**
+
+The caching system has two layers, analogous to a BDD's unique table +
+operation cache:
+
+| Layer | Addressing | Purpose | Analogy |
+|-------|-----------|---------|---------|
+| Scene registry + dep graph | Identity (blockId) | Know what to invalidate | BDD operation cache |
+| Mesh memo table | Content (AST hash) | Reuse previously-computed geometry | BDD unique table |
+
+The dependency graph answers "what changed?"  The memo table answers "have I
+seen this content before?"  These compose:
+
+```
+Block X edited
+  │
+  ├─ Dependency graph (identity-based):
+  │    "subtrees rooted at block_3 and block_7 need re-evaluation"
+  │    (O(1) lookup via reverse index, no hashing)
+  │
+  └─ For each invalidated subtree:
+       ├─ Re-generate AST for subtree (cheap)
+       ├─ Hash the new AST → check memo table (content-addressed)
+       │    ├─ HIT → reuse cached mesh (undo, shared structure)
+       │    └─ MISS → mesh from scratch, store in memo table
+       └─ Swap result into scene graph
+```
+
+Like BDD hash-consing, the memo table enables sharing across both **space**
+(two branches with identical `intersect(cube 20, sphere 15)` share one mesh)
+and **time** (changing a param from 25→26→25 finds the original mesh in the
+memo table on the way back).
+
+Content hashing of AST subtrees is O(subtree size), which is only paid for
+invalidated subtrees — the dependency graph already narrowed down which
+subtrees need re-evaluation.  For unchanged subtrees, no hashing occurs.
+
 **Scene registry:** `Map<blockId, SceneEntry>`
 
 ```js
@@ -78,6 +115,7 @@ replace them in the live scene.
   blockId: string,            // root block of the subtree that was meshed
   threeObject: THREE.Object3D, // the live scene graph node
   deps: Set<string>,          // all blockIds in the meshed subtree
+  contentHash: string,        // hash of the AST subtree (for memo table)
   resolution: number,         // csgResolution when this was meshed
 }
 ```
@@ -86,24 +124,41 @@ replace them in the live scene.
 
 Maps each block to the set of scene entries (by root blockId) that depend on it.
 When block X is edited, `depsIndex.get(X)` gives all entries to invalidate.
-Invalidation means: re-mesh that subtree, swap the new Three.js object into
-the parent Group in place of the old one.
+
+**Mesh memo table:** `Map<contentHash, THREE.Group>`
+
+Content-addressed cache of meshCSGNode results.  The hash is computed from the
+AST subtree structure (type, params, children — excluding non-enumerable
+`_blockId`).  Entries survive across invalidation cycles: when a subtree is
+invalidated and re-evaluated, the new AST is hashed and checked against the
+memo table before meshing.
+
+Memo table entries need reference counting or LRU eviction since they persist
+across scene graph rebuilds.  A simple approach: cap at N entries, evict oldest
+on overflow.
 
 ### How `notify(changedBlockId)` flows
 
 **Param edit** (changedBlockId is defined):
-1. `invalidateCache(changedBlockId)` → find affected scene entries via reverse index.
+1. `invalidateCache(changedBlockId)` → find affected scene entries via reverse
+   index.  Mark them as stale (don't delete yet — the memo table may rescue them).
 2. Re-run codegen + expand (cheap, <5ms) to get the new AST.
 3. In `evaluate()`, when `evalNode` reaches a meshCSGNode call:
-   - If entry exists in scene registry AND is not invalidated → **skip meshing,
-     reuse the existing Three.js object** (it's already in the scene).
-   - If entry is invalidated → mesh from scratch, create new Three.js object,
-     **replace the old object in its parent Group**.
+   - If entry exists in scene registry AND is **not stale** → skip meshing,
+     reuse the existing Three.js object directly.
+   - If entry is **stale or missing** → hash the AST subtree → check memo table:
+     - **Memo hit** → clone the memo'd mesh, swap into scene, update registry.
+       (This handles undo and shared subexpressions.)
+     - **Memo miss** → mesh from scratch, store in memo table, swap into scene,
+       update registry.
 4. `viewport.patchContent(diff)` instead of `viewport.setContent(newGroup)`.
 
 **Structural change** (changedBlockId is undefined):
 1. Clear entire scene registry + reverse index.
-2. Full re-evaluate, full scene replacement (same as today).
+2. Memo table is **NOT cleared** — structural changes (add/delete/move blocks)
+   produce new AST subtrees that may match previously-computed content.
+3. Full re-evaluate.  Each meshCSGNode call checks the memo table by content hash.
+   Subtrees that happened to exist in a previous state get instant hits.
 
 ### Union splitting (prerequisite)
 
@@ -444,9 +499,36 @@ affected entries.  No JSON.stringify, no content hashing.
 
 ---
 
-## Relationship to Salsa / Incremental Computation
+## Relationship to BDDs, Salsa, and Incremental Computation
 
-This design borrows two key ideas from Salsa:
+### BDD analogy
+
+The two-layer cache architecture mirrors BDD data structures:
+
+- **Memo table ≈ BDD unique table.**  Content-addressed: two structurally
+  identical AST subtrees map to the same cached mesh.  Enables sharing across
+  space (identical sibling subtrees) and time (undo, parameter cycling).
+
+- **Scene registry ≈ BDD operation cache.**  Identity-addressed: tracks which
+  live scene graph nodes correspond to which block subtrees, and what their
+  dependencies are.
+
+Like BDD hash-consing, the memo table gives us structural sharing for free.
+Unlike BDDs, our "nodes" are expensive to compute (50–500ms of meshing), so
+the cache hit rate matters enormously.
+
+**PL constructs and BDD variable ordering:** The stir/enzyme system uses
+string-based tags for pattern matching.  For a true BDD-like canonical form
+over enzyme reactions, tags would need to be normalized to numeric indices
+(analogous to BDD variable ordering).  This is out of scope for Phase 1 but
+would be relevant if we ever want canonical forms for expanded ASTs containing
+PL constructs.  Without normalization, two structurally equivalent enzyme
+expressions with different tag names would hash differently and miss in the
+memo table.
+
+### Salsa
+
+This design also borrows two key ideas from Salsa:
 
 1. **Dependency tracking:** Each "query" (meshCSGNode call) records its inputs
    (the block IDs in its subtree).  When an input changes, only queries that
