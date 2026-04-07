@@ -55,6 +55,9 @@ function appendHudEntry(stats) {
   } else {
     text += ` | uniform grid`;
   }
+  if (stats.cacheHits > 0) {
+    text += ` | ${stats.cacheHits} cache hit${stats.cacheHits > 1 ? 's' : ''}`;
+  }
   entry.textContent = text;
   hudEl.appendChild(entry);
   // Trim old entries
@@ -209,8 +212,8 @@ async function runGPUPipeline(ast) {
   } catch (e) {
     console.error('GPU pipeline failed:', e);
     // Fall back to CPU
-    const { group, stats } = evaluate(ast);
-    viewport.setContent(group);
+    const { group, stats, retained } = evaluate(ast);
+    viewport.setContent(group, retained);
     appendHudEntry(stats);
   }
   meshingIndicator.classList.remove('visible');
@@ -279,8 +282,8 @@ function runPipeline(changedBlockId) {
     meshingIndicator.classList.add('visible');
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        const { group, stats } = evaluate(ast, changedBlockId);
-        viewport.setContent(group);
+        const { group, stats, retained } = evaluate(ast, changedBlockId);
+        viewport.setContent(group, retained);
         appendHudEntry(stats);
         meshingIndicator.classList.remove('visible');
         pipelinePending = false;
@@ -334,8 +337,8 @@ codeOutput.addEventListener('input', () => {
           }
         }, updateMeshingStatus, provField);
       } else {
-        const { group, stats } = evaluate(ast);
-        viewport.setContent(group);
+        const { group, stats, retained } = evaluate(ast);
+        viewport.setContent(group, retained);
         appendHudEntry(stats);
       }
       try { localStorage.setItem('schnapp3_model', codeOutput.value); } catch (e) {}

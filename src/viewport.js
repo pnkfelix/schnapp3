@@ -139,9 +139,10 @@ export function createViewport(container) {
     getContent() {
       return contentGroup;
     },
-    setContent(newGroup) {
+    setContent(newGroup, retainedObjects) {
       scene.remove(contentGroup);
       contentGroup.traverse(obj => {
+        if (retainedObjects && retainedObjects.has(obj)) return;
         if (obj.geometry) obj.geometry.dispose();
         if (obj.material) obj.material.dispose();
       });
