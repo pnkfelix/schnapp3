@@ -9,6 +9,8 @@ import { evalField } from './eval/sdf-field.js';
 import { addAntiMesh, getAntiCheckerSize, setAntiCheckerSize, getAntiWireframeMode, setAntiWireframeMode, cycleAntiWireframeMode } from './eval/anti-mesh.js';
 import { getTextSDF, getTextSDFBounds } from './eval/text-sdf.js';
 import { getFont } from './eval/font-cache.js';
+import { parseSExpr } from './parser.js';
+import { expandAST } from './expand.js';
 
 // Wire up the text bounds provider so the interval evaluator uses actual
 // text SDF geometry extents instead of approximate font metrics.
@@ -259,7 +261,23 @@ function evalNode(node) {
     }
     case 'union': {
       if (needsFieldEval(node)) {
-        return tagBlockId(meshCSGNode(node), node);
+        // If any direct child is anti/complement, their polarity must
+        // interact with siblings — mesh the whole union as one SDF field.
+        const children = nodeChildren(node);
+        const hasAntiChild = children.some(c =>
+          Array.isArray(c) && (c[0] === 'anti' || c[0] === 'complement'));
+        if (hasAntiChild) {
+          return tagBlockId(meshCSGNode(node), node);
+        }
+        // No anti/complement children — safe to evaluate each child
+        // independently. Each child's meshCSGNode handles its own internal
+        // anti-solids. This enables per-child subtree caching.
+        const group = new THREE.Group();
+        for (const child of children) {
+          const obj = evalNode(child);
+          if (obj) group.add(obj);
+        }
+        return tagBlockId(group, node);
       }
       const group = new THREE.Group();
       for (const child of nodeChildren(node)) {
@@ -861,6 +879,117 @@ function recolorObject(obj, fromColor, toColor) {
     }
   });
 }
+
+// ---- Cache benchmark ----
+// Measures actual speedup from subtree caching on representative models.
+// Simulates editing one CSG subtree while siblings remain unchanged.
+
+const CACHE_BENCH_MODELS = {
+  '2-branch': `(union
+  (intersect (cube 25) (sphere 18))
+  (translate 40 0 0 (fuse :k 5 (cube 20) (sphere 12))))`,
+  '3-branch': `(union
+  (intersect (cube 25) (sphere 18))
+  (translate 40 0 0 (fuse :k 5 (cube 20) (sphere 12)))
+  (translate -40 0 0 (intersect (sphere 15) (anti (cube 10)))))`,
+  '5-branch': `(union
+  (intersect (cube 25) (sphere 18))
+  (translate 40 0 0 (fuse :k 5 (cube 20) (sphere 12)))
+  (translate -40 0 0 (intersect (sphere 15) (anti (cube 10))))
+  (translate 0 40 0 (fuse :k 3 (cylinder 10 25) (sphere 14)))
+  (translate 0 -40 0 (intersect (cube 20) (anti (cylinder 8 30)))))`,
+};
+
+// Variant with one subtree changed (first branch: cube size 25→26)
+function tweakFirstBranch(sexpr) {
+  return sexpr.replace('(cube 25)', '(cube 26)');
+}
+
+function disposeGroup(group) {
+  group.traverse(obj => {
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) {
+      if (obj.material.dispose) obj.material.dispose();
+    }
+  });
+}
+
+export function benchCache(resOverride) {
+  const res = resOverride || csgResolution;
+  const savedRes = csgResolution;
+  csgResolution = res;
+
+  const results = [];
+
+  for (const [name, sexpr] of Object.entries(CACHE_BENCH_MODELS)) {
+    const ast1 = expandAST(parseSExpr(sexpr));
+    const ast2 = expandAST(parseSExpr(tweakFirstBranch(sexpr)));
+
+    // --- Cold run: no cache, evaluate original ---
+    subtreeCache.clear();
+    const t0 = performance.now();
+    const r1 = evaluate(ast1);
+    const coldMs = performance.now() - t0;
+    disposeGroup(r1.group);
+
+    // --- Warm run: cache populated from ast1, now evaluate ast2 (one branch changed) ---
+    // Cache is populated from the cold run. ast2 differs in one branch,
+    // so sibling branches should hit the cache.
+    const t1 = performance.now();
+    const r2 = evaluate(ast2);
+    const warmMs = performance.now() - t1;
+    const cacheHit = r2.stats.cacheHit;
+    disposeGroup(r2.group);
+
+    // --- Uncached comparison: clear cache and evaluate ast2 from scratch ---
+    subtreeCache.clear();
+    const t2 = performance.now();
+    const r3 = evaluate(ast2);
+    const uncachedMs = performance.now() - t2;
+    disposeGroup(r3.group);
+
+    const speedup = uncachedMs > 0 ? (uncachedMs / warmMs).toFixed(1) : 'n/a';
+
+    results.push({
+      model: name,
+      coldMs: Math.round(coldMs),
+      warmMs: Math.round(warmMs),
+      uncachedMs: Math.round(uncachedMs),
+      speedup,
+      cacheHit,
+      cacheEntries: subtreeCache.size,
+    });
+  }
+
+  subtreeCache.clear();
+  csgResolution = savedRes;
+
+  // Format output
+  const lines = ['=== Subtree Cache Benchmark (res ' + res + ') ===', ''];
+  lines.push(pad2('Model', 12) + pad2('Cold', 9) + pad2('Cached', 9) + pad2('No-cache', 9) + pad2('Speedup', 9) + 'Hit?');
+  lines.push('-'.repeat(50));
+  for (const r of results) {
+    lines.push(
+      pad2(r.model, 12) +
+      pad2(r.coldMs + 'ms', 9) +
+      pad2(r.warmMs + 'ms', 9) +
+      pad2(r.uncachedMs + 'ms', 9) +
+      pad2(r.speedup + 'x', 9) +
+      (r.cacheHit ? 'YES' : 'no')
+    );
+  }
+  lines.push('');
+  lines.push('Cold     = first eval, empty cache');
+  lines.push('Cached   = eval after edit to 1 branch (siblings cached)');
+  lines.push('No-cache = same edit, cache cleared first');
+  lines.push('Speedup  = No-cache / Cached');
+
+  const formatted = lines.join('\n');
+  console.log(formatted);
+  return { results, formatted };
+}
+
+function pad2(s, n) { return String(s).padEnd(n); }
 
 // Re-exports from extracted modules
 export { evalField } from './eval/sdf-field.js';

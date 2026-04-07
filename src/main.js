@@ -1,7 +1,7 @@
 import { createViewport } from './viewport.js';
 import { initPalette, initWorkspace, renderWorkspace, subscribe, getRootBlocks, addBlockToRoot, addBlockAsChild, updateParam, replaceFromAST, highlightBlock } from './blocks.js';
 import { generateAST, formatSExpr } from './codegen.js';
-import { evaluate, getResolution, getUseOctree, needsFieldEval, buildProvenanceField, setOnFontLoaded, clearSubtreeCache, getSubtreeCacheStats } from './evaluator.js';
+import { evaluate, getResolution, getUseOctree, needsFieldEval, buildProvenanceField, setOnFontLoaded } from './evaluator.js';
 import { meshProgressive } from './progressive.js';
 import { resToDepth } from './octree-core.js';
 import { parseSExpr } from './parser.js';

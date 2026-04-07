@@ -1,6 +1,6 @@
 // Command bar: autocomplete, parsing, and execution.
 
-import { getResolution, setResolution, getUseOctree, setUseOctree, getAntiCheckerSize, setAntiCheckerSize, cycleAntiWireframeMode, clearSubtreeCache, getSubtreeCacheStats } from '../evaluator.js';
+import { getResolution, setResolution, getUseOctree, setUseOctree, getAntiCheckerSize, setAntiCheckerSize, cycleAntiWireframeMode, clearSubtreeCache, getSubtreeCacheStats, benchCache } from '../evaluator.js';
 
 // Callbacks injected by main.js via initCommandBar()
 let ctx = null;
@@ -151,6 +151,13 @@ function executeCommand(text) {
     commandInput.blur();
     return;
   }
+  if (parts[0] === 'bench' && parts[1] === 'cache') {
+    const res = parts[2] ? parseInt(parts[2], 10) : null;
+    benchCache(res);
+    commandInput.value = '';
+    commandInput.blur();
+    return;
+  }
   if (parts[0] === 'bench') {
     ctx.runBench(parts[1] ? parseInt(parts[1], 10) : null);
     commandInput.value = '';
@@ -279,6 +286,9 @@ export function initCommandBar(modelNames, callbacks) {
     { text: 'octree', hint: 'toggle octree acceleration on/off' },
     { text: 'progressive', hint: 'toggle progressive refinement on/off' },
     { text: 'gpu', hint: 'toggle WebGPU SDF evaluation on/off' },
+    { text: 'bench cache', hint: 'benchmark subtree cache speedup' },
+    { text: 'bench cache 48', hint: 'cache benchmark at res 48' },
+    { text: 'bench cache 96', hint: 'cache benchmark at res 96' },
     { text: 'bench', hint: 'run GPU vs CPU performance benchmark' },
     { text: 'bench 48', hint: 'benchmark at resolution 48 only' },
     { text: 'bench 96', hint: 'benchmark at resolution 96 only' },
