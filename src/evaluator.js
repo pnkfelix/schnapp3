@@ -55,8 +55,120 @@ let useOctree = true;
 export function getUseOctree() { return useOctree; }
 export function setUseOctree(v) { useOctree = v; }
 
-export function evaluate(ast) {
-  evalStats = { nodes: 0, voxels: 0, meshTime: 0, resolution: csgResolution, octree: null };
+// ---- Subtree cache with dependency tracking ----
+//
+// Cache: blockId → { group: THREE.Group, deps: Set<blockId>, resolution }
+// Reverse index: blockId → Set<blockId> (which cache entries depend on this block)
+//
+// On param edit: notify(blockId) → invalidate only cache entries that depend
+// on the changed block (O(number of affected entries), not O(tree size)).
+// On structural change: notify(undefined) → clear everything.
+
+const subtreeCache = new Map();
+const depsIndex = new Map();    // blockId → Set<cacheRootId>
+const MAX_CACHE_ENTRIES = 64;
+
+// Walk an AST subtree and collect all _blockId annotations.
+function collectBlockIds(node, ids) {
+  if (!node || !Array.isArray(node)) return;
+  if (node._blockId) ids.add(node._blockId);
+  for (let i = 1; i < node.length; i++) {
+    const v = node[i];
+    if (Array.isArray(v)) {
+      collectBlockIds(v, ids);
+    } else if (v && typeof v === 'object') {
+      // params object — may contain embedded expression ASTs
+      for (const pv of Object.values(v)) {
+        if (Array.isArray(pv)) collectBlockIds(pv, ids);
+      }
+    }
+  }
+}
+
+function deepCloneGroup(group) {
+  const clone = new THREE.Group();
+  for (const child of group.children) {
+    if (child.isMesh) {
+      const geo = child.geometry.clone();
+      const mat = child.material.clone ? child.material.clone() : child.material;
+      const mesh = new THREE.Mesh(geo, mat);
+      if (child.userData.vertexBlockIds) {
+        mesh.userData.vertexBlockIds = child.userData.vertexBlockIds;
+      }
+      if (child.userData.blockId) {
+        mesh.userData.blockId = child.userData.blockId;
+      }
+      clone.add(mesh);
+    } else if (child.isLineSegments) {
+      const geo = child.geometry.clone();
+      const mat = child.material.clone ? child.material.clone() : child.material;
+      clone.add(new THREE.LineSegments(geo, mat));
+    } else if (child.isGroup) {
+      clone.add(deepCloneGroup(child));
+    }
+  }
+  return clone;
+}
+
+function addCacheEntry(rootId, group, deps, resolution) {
+  if (subtreeCache.size >= MAX_CACHE_ENTRIES) {
+    // Evict oldest entry (first key in insertion order)
+    const oldestKey = subtreeCache.keys().next().value;
+    removeCacheEntry(oldestKey);
+  }
+  subtreeCache.set(rootId, { group: deepCloneGroup(group), deps, resolution });
+  // Update reverse index
+  for (const dep of deps) {
+    let set = depsIndex.get(dep);
+    if (!set) { set = new Set(); depsIndex.set(dep, set); }
+    set.add(rootId);
+  }
+}
+
+function removeCacheEntry(rootId) {
+  const entry = subtreeCache.get(rootId);
+  if (!entry) return;
+  // Clean up reverse index
+  for (const dep of entry.deps) {
+    const set = depsIndex.get(dep);
+    if (set) {
+      set.delete(rootId);
+      if (set.size === 0) depsIndex.delete(dep);
+    }
+  }
+  subtreeCache.delete(rootId);
+}
+
+// Targeted invalidation: remove cache entries that depend on changedBlockId.
+// If changedBlockId is undefined, clear everything (structural change).
+export function invalidateCache(changedBlockId) {
+  if (!changedBlockId) {
+    subtreeCache.clear();
+    depsIndex.clear();
+    return;
+  }
+  const affected = depsIndex.get(changedBlockId);
+  if (!affected) return;
+  // Copy the set since removeCacheEntry mutates it
+  for (const rootId of [...affected]) {
+    removeCacheEntry(rootId);
+  }
+}
+
+export function clearSubtreeCache() {
+  subtreeCache.clear();
+  depsIndex.clear();
+}
+
+export function getSubtreeCacheStats() {
+  return { entries: subtreeCache.size, maxEntries: MAX_CACHE_ENTRIES, depsEntries: depsIndex.size };
+}
+
+export function evaluate(ast, changedBlockId) {
+  // Invalidate affected cache entries before evaluation
+  invalidateCache(changedBlockId);
+
+  evalStats = { nodes: 0, voxels: 0, meshTime: 0, resolution: csgResolution, octree: null, cacheHits: 0 };
   const t0 = performance.now();
   if (!ast) return { group: new THREE.Group(), stats: evalStats };
   const result = evalNode(ast);
@@ -201,7 +313,22 @@ function evalNode(node) {
     }
     case 'union': {
       if (needsFieldEval(node)) {
-        return tagBlockId(meshCSGNode(node), node);
+        // If a direct child is anti/complement, its polarity must interact
+        // with siblings — mesh the whole union as one SDF field.
+        const children = nodeChildren(node);
+        const hasAntiChild = children.some(c =>
+          Array.isArray(c) && (c[0] === 'anti' || c[0] === 'complement'));
+        if (hasAntiChild) {
+          return tagBlockId(meshCSGNode(node), node);
+        }
+        // Otherwise, evaluate each child independently so each child's
+        // meshCSGNode call can be cached separately.
+        const group = new THREE.Group();
+        for (const child of children) {
+          const obj = evalNode(child);
+          if (obj) group.add(obj);
+        }
+        return tagBlockId(group, node);
       }
       const group = new THREE.Group();
       for (const child of nodeChildren(node)) {

@@ -217,7 +217,7 @@ async function runGPUPipeline(ast) {
   pipelinePending = false;
 }
 
-function runPipeline() {
+function runPipeline(changedBlockId) {
   if (codeEditedManually) return;
   const roots = getRootBlocks();
   const rawAST = generateAST(roots);
@@ -279,7 +279,7 @@ function runPipeline() {
     meshingIndicator.classList.add('visible');
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        const { group, stats } = evaluate(ast);
+        const { group, stats } = evaluate(ast, changedBlockId);
         viewport.setContent(group);
         appendHudEntry(stats);
         meshingIndicator.classList.remove('visible');
@@ -289,9 +289,9 @@ function runPipeline() {
   }
 }
 
-subscribe(() => {
+subscribe((changedBlockId) => {
   codeEditedManually = false;
-  runPipeline();
+  runPipeline(changedBlockId);
 });
 
 // Re-render when a text font finishes loading from CDN

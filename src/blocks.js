@@ -249,8 +249,8 @@ const allBlocks = new Map();
 const subscribers = [];
 let nextId = 1;
 
-function notify() {
-  for (const fn of subscribers) fn();
+function notify(changedBlockId) {
+  for (const fn of subscribers) fn(changedBlockId);
 }
 
 export function subscribe(fn) {
@@ -357,7 +357,7 @@ export function updateParam(blockId, paramName, value) {
   const block = allBlocks.get(blockId);
   if (!block) return;
   block.params[paramName] = value;
-  notify();
+  notify(blockId);
 }
 
 // Set a block into an expression-capable param slot.
@@ -1171,7 +1171,7 @@ function onParamInput(e) {
         if (field === 'tag' && target.value && idx === rows.length - 1) {
           rows.push({ tag: '', default: '' });
         }
-        notify();
+        notify(target.dataset.blockId);
       }
       return;
     }
