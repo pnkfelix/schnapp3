@@ -557,27 +557,46 @@ What we **don't** do (and why):
 
 ---
 
-## Current State (WIP)
+## Current State
 
 As of the current commit on `claude/cache-block-subtrees-kSaZb`:
 
-**Done:**
+**Phase 1 — Complete:**
 - `notify(changedBlockId)` in blocks.js — param edits pass blockId,
   structural changes pass undefined.
 - Union split in evalNode — CSG children evaluated independently unless
   direct anti/complement children present.
-- Cache infrastructure in evaluator.js — subtreeCache, depsIndex,
-  collectBlockIds, invalidateCache, deepCloneGroup.  **Not yet wired into
-  meshCSGNode.**
+- Two-layer cache in evaluator.js:
+  - Scene registry (identity-addressed by blockId) with reverse dependency
+    index for O(1) targeted invalidation.
+  - Mesh memo table (content-addressed by AST hash) for BDD-style reuse
+    across time (undo) and space (shared subexpressions).
+  - Wired into meshCSGNode: Layer 1 check → Layer 2 check → mesh from
+    scratch → store in both layers.
+- viewport.js `setContent(newGroup, retainedObjects)` skips disposing
+  cached objects that are being reused.
+- `bench cache` browser command; `cache` / `cache clear` inspection commands.
+- Headless benchmark via `node bench/run.js --cache` (exercises benchCache
+  from evaluator.js).
+- Text model benchmarks (text+csg, text-3br).
 
-**Next steps:**
-- Wire cache into meshCSGNode (lookup + store).
-- Modify viewport.js setContent to accept retained objects.
-- Add bench cache command.
-- Test and measure.
+**Measured speedups (headless, resolution 96):**
 
-**Previous approach (v1, preserved on branch):**
-`claude/cache-block-subtrees-kSaZb-v1-content-hash` — used JSON.stringify
-content hashing as cache keys.  Abandoned because: O(tree size) key
-computation, no dependency tracking, doesn't enable the richer Phase 2/3
-goals.
+| Model    | Edit speedup | Undo speedup | Cache hits |
+|----------|-------------|-------------|------------|
+| 2-branch | 2.2x        | 441x        | 1          |
+| 3-branch | 3.3x        | 1524x       | 2          |
+| 5-branch | 4.9x        | 1231x       | 4          |
+| text+csg | 3.1x        | 2460x       | 1          |
+| text-3br | 4.7x        | 59x         | 2          |
+
+Edit speedup scales with branch count (only the edited branch re-meshes).
+Undo is effectively free (sub-millisecond memo table hit).
+
+**Phase 2 — Not started:**
+- Rich multi-source provenance (influence weights in SDF field evaluation).
+- Fuse already computes per-child softmin weights but discards them.
+
+**Phase 3 — Not started:**
+- Bidirectional UI: pixel→blocks highlighting, block→geometry highlighting.
+- Geometry inspector panel.
