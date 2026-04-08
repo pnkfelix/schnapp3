@@ -1,6 +1,6 @@
 // Command bar: autocomplete, parsing, and execution.
 
-import { getResolution, setResolution, getUseOctree, setUseOctree, getAntiCheckerSize, setAntiCheckerSize, cycleAntiWireframeMode } from '../evaluator.js';
+import { getResolution, setResolution, getUseOctree, setUseOctree, getAntiCheckerSize, setAntiCheckerSize, cycleAntiWireframeMode, clearSubtreeCache, getSubtreeCacheStats, benchCache } from '../evaluator.js';
 
 // Callbacks injected by main.js via initCommandBar()
 let ctx = null;
@@ -151,6 +151,12 @@ function executeCommand(text) {
     commandInput.blur();
     return;
   }
+  if (parts[0] === 'bench' && parts[1] === 'cache') {
+    benchCache(parts[2] ? parseInt(parts[2], 10) : null);
+    commandInput.value = '';
+    commandInput.blur();
+    return;
+  }
   if (parts[0] === 'bench') {
     ctx.runBench(parts[1] ? parseInt(parts[1], 10) : null);
     commandInput.value = '';
@@ -171,6 +177,7 @@ function executeCommand(text) {
     const n = parseFloat(parts[4]);
     if (!isNaN(n) && n > 0) {
       setAntiCheckerSize(n);
+      clearSubtreeCache();
       ctx.runPipeline();
       commandInput.value = '';
       commandInput.blur();
@@ -180,6 +187,7 @@ function executeCommand(text) {
   if (parts[0] === 'visual' && parts[1] === 'anti' && parts[2] === 'via' && parts[3] === 'wireframe') {
     const mode = cycleAntiWireframeMode();
     console.log('anti wireframe:', mode);
+    clearSubtreeCache();
     ctx.runPipeline();
     commandInput.value = '';
     commandInput.blur();
@@ -204,6 +212,18 @@ function executeCommand(text) {
   }
   if (parts[0] === 'reset') {
     ctx.loadDefaultModel(parts[1]);
+    commandInput.value = '';
+    commandInput.blur();
+    return;
+  }
+  if (parts[0] === 'cache') {
+    if (parts[1] === 'clear') {
+      clearSubtreeCache();
+      console.log('Subtree cache cleared');
+    } else {
+      const s = getSubtreeCacheStats();
+      console.log(`Cache: registry=${s.registry} (${s.stale} stale), memo=${s.memo}, dep-edges=${s.depsEdges}`);
+    }
     commandInput.value = '';
     commandInput.blur();
     return;
@@ -274,6 +294,11 @@ export function initCommandBar(modelNames, callbacks) {
     { text: 'visual anti via checker 10', hint: 'anti-solid checker size: very large' },
     { text: 'visual anti via wireframe', hint: 'cycle: off → full → edges' },
     { text: 'export 3mf', hint: 'download 3MF for 3D printing (multi-color)' },
+    { text: 'bench cache', hint: 'benchmark subtree cache speedup' },
+    { text: 'bench cache 48', hint: 'cache benchmark at res 48' },
+    { text: 'bench cache 96', hint: 'cache benchmark at res 96' },
+    { text: 'cache', hint: 'show cache stats (registry + memo)' },
+    { text: 'cache clear', hint: 'clear all caches' },
     { text: 'focus reset', hint: 'reset camera focus to origin' },
     { text: 'focus', hint: 'show current camera focus point' },
     ...modelNames.map(name => ({

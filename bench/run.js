@@ -21,6 +21,8 @@
 //   npm run bench -- --update                  # regenerate reference snapshot
 //   npm run bench -- --resolution 128          # custom resolution
 //   npm run bench -- --model simple-csg        # different model
+//   npm run bench -- --cache                   # subtree cache benchmark
+//   npm run bench -- --cache --resolution 96   # cache benchmark at res 96
 
 import fs from 'fs';
 import path from 'path';
@@ -34,7 +36,7 @@ import { evalCSGFieldInterval, setTextBoundsProvider } from '../src/interval-eva
 import { classify } from '../src/interval.js';
 import { buildOctree, meshOctreeLeavesRaw, meshFieldRaw, resToDepth } from '../src/octree-core.js';
 // Main-thread path imports
-import { evaluate, setResolution, setUseOctree } from '../src/evaluator.js';
+import { evaluate, setResolution, setUseOctree, benchCache } from '../src/evaluator.js';
 import { evalField } from '../src/eval/sdf-field.js';
 // Shared
 import { injectFont } from '../src/eval/font-cache.js';
@@ -411,12 +413,23 @@ async function main() {
   const modelIdx = args.indexOf('--model');
   if (modelIdx >= 0 && args[modelIdx + 1]) modelName = args[modelIdx + 1];
 
+  const cacheMode = args.includes('--cache');
+
   let mode = 'worker';
   const modeIdx = args.indexOf('--mode');
   if (modeIdx >= 0 && args[modeIdx + 1]) mode = args[modeIdx + 1];
-  if (mode !== 'worker' && mode !== 'main-thread') {
+  if (!cacheMode && mode !== 'worker' && mode !== 'main-thread') {
     console.error(`Unknown mode: "${mode}". Available: worker, main-thread`);
     process.exit(1);
+  }
+
+  // Cache benchmark mode: runs benchCache from evaluator.js
+  if (cacheMode) {
+    loadFont('helvetiker');
+    console.log(`Running subtree cache benchmark at resolution ${resolution}...`);
+    console.log();
+    benchCache(resolution);
+    return;
   }
 
   const modelSrc = MODELS[modelName];

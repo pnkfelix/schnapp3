@@ -9,6 +9,8 @@ import { evalField } from './eval/sdf-field.js';
 import { addAntiMesh, getAntiCheckerSize, setAntiCheckerSize, getAntiWireframeMode, setAntiWireframeMode, cycleAntiWireframeMode } from './eval/anti-mesh.js';
 import { getTextSDF, getTextSDFBounds } from './eval/text-sdf.js';
 import { getFont } from './eval/font-cache.js';
+import { parseSExpr } from './parser.js';
+import { expandAST } from './expand.js';
 
 // Wire up the text bounds provider so the interval evaluator uses actual
 // text SDF geometry extents instead of approximate font metrics.
@@ -55,16 +57,174 @@ let useOctree = true;
 export function getUseOctree() { return useOctree; }
 export function setUseOctree(v) { useOctree = v; }
 
-export function evaluate(ast) {
-  evalStats = { nodes: 0, voxels: 0, meshTime: 0, resolution: csgResolution, octree: null };
+// ---- Two-layer subtree cache ----
+//
+// Layer 1 — Scene registry (identity-addressed by blockId):
+//   Tracks which meshCSGNode results are live in the scene and what blocks
+//   they depend on.  Used for targeted invalidation: notify(blockId) walks
+//   the reverse index to mark affected entries as stale.
+//
+// Layer 2 — Mesh memo table (content-addressed by AST hash):
+//   Caches meshCSGNode results by structural content of the AST subtree.
+//   Survives across invalidation cycles: when a stale entry is re-evaluated,
+//   the new AST is hashed and checked here before meshing.  Enables reuse
+//   across time (undo) and space (shared subexpressions).
+
+// --- Scene registry (Layer 1) ---
+const sceneRegistry = new Map();  // blockId → { group, deps: Set<blockId>, contentHash, stale }
+const depsIndex = new Map();      // blockId → Set<registryKey>
+
+function registryAdd(rootId, group, deps, contentHash) {
+  registryRemove(rootId);  // clean up any existing entry
+  sceneRegistry.set(rootId, { group, deps, contentHash, stale: false });
+  for (const dep of deps) {
+    let set = depsIndex.get(dep);
+    if (!set) { set = new Set(); depsIndex.set(dep, set); }
+    set.add(rootId);
+  }
+}
+
+function registryRemove(rootId) {
+  const entry = sceneRegistry.get(rootId);
+  if (!entry) return;
+  for (const dep of entry.deps) {
+    const set = depsIndex.get(dep);
+    if (set) {
+      set.delete(rootId);
+      if (set.size === 0) depsIndex.delete(dep);
+    }
+  }
+  sceneRegistry.delete(rootId);
+}
+
+function registryMarkStale(changedBlockId) {
+  const affected = depsIndex.get(changedBlockId);
+  if (!affected) return;
+  for (const rootId of affected) {
+    const entry = sceneRegistry.get(rootId);
+    if (entry) entry.stale = true;
+  }
+}
+
+// --- Memo table (Layer 2) ---
+const memoTable = new Map();  // contentHash → THREE.Group
+const MAX_MEMO_ENTRIES = 128;
+
+function memoContentHash(node) {
+  // JSON.stringify excludes non-enumerable _blockId — purely structural.
+  // Only called for invalidated/new subtrees, not every frame.
+  return JSON.stringify(node) + '@' + csgResolution;
+}
+
+function memoStore(hash, group) {
+  if (memoTable.size >= MAX_MEMO_ENTRIES) {
+    // Evict oldest (first in insertion order)
+    const oldest = memoTable.keys().next().value;
+    memoTable.delete(oldest);
+  }
+  memoTable.set(hash, deepCloneGroup(group));
+}
+
+function memoLookup(hash) {
+  const cached = memoTable.get(hash);
+  if (!cached) return null;
+  // Move to end (refresh LRU position)
+  memoTable.delete(hash);
+  memoTable.set(hash, cached);
+  return deepCloneGroup(cached);
+}
+
+// --- Public API ---
+
+// Called at start of evaluate() with the changed blockId (or undefined for structural).
+function invalidateForEdit(changedBlockId) {
+  if (!changedBlockId) {
+    // Structural change: clear scene registry, keep memo table
+    sceneRegistry.clear();
+    depsIndex.clear();
+    return;
+  }
+  registryMarkStale(changedBlockId);
+}
+
+export function clearSubtreeCache() {
+  sceneRegistry.clear();
+  depsIndex.clear();
+  memoTable.clear();
+}
+
+export function getSubtreeCacheStats() {
+  let staleCount = 0;
+  for (const e of sceneRegistry.values()) if (e.stale) staleCount++;
+  return {
+    registry: sceneRegistry.size,
+    stale: staleCount,
+    memo: memoTable.size,
+    depsEdges: depsIndex.size,
+  };
+}
+
+// --- Utilities ---
+
+function collectBlockIds(node, ids) {
+  if (!node || !Array.isArray(node)) return;
+  if (node._blockId) ids.add(node._blockId);
+  for (let i = 1; i < node.length; i++) {
+    const v = node[i];
+    if (Array.isArray(v)) {
+      collectBlockIds(v, ids);
+    } else if (v && typeof v === 'object') {
+      for (const pv of Object.values(v)) {
+        if (Array.isArray(pv)) collectBlockIds(pv, ids);
+      }
+    }
+  }
+}
+
+function deepCloneGroup(group) {
+  const clone = new THREE.Group();
+  for (const child of group.children) {
+    if (child.isMesh) {
+      const geo = child.geometry.clone();
+      const mat = child.material.clone ? child.material.clone() : child.material;
+      const mesh = new THREE.Mesh(geo, mat);
+      if (child.userData.vertexBlockIds) {
+        mesh.userData.vertexBlockIds = child.userData.vertexBlockIds;
+      }
+      if (child.userData.blockId) {
+        mesh.userData.blockId = child.userData.blockId;
+      }
+      clone.add(mesh);
+    } else if (child.isLineSegments) {
+      const geo = child.geometry.clone();
+      const mat = child.material.clone ? child.material.clone() : child.material;
+      clone.add(new THREE.LineSegments(geo, mat));
+    } else if (child.isGroup) {
+      clone.add(deepCloneGroup(child));
+    }
+  }
+  return clone;
+}
+
+// Track objects reused from memo table during this evaluate() call.
+// These should NOT be disposed when the old scene graph is replaced.
+let currentRetained = null;
+
+export function evaluate(ast, changedBlockId) {
+  invalidateForEdit(changedBlockId);
+  currentRetained = new Set();
+
+  evalStats = { nodes: 0, voxels: 0, meshTime: 0, resolution: csgResolution, octree: null, cacheHits: 0 };
   const t0 = performance.now();
-  if (!ast) return { group: new THREE.Group(), stats: evalStats };
+  if (!ast) return { group: new THREE.Group(), stats: evalStats, retained: currentRetained };
   const result = evalNode(ast);
   evalStats.meshTime = Math.round(performance.now() - t0);
-  if (!result) return { group: new THREE.Group(), stats: evalStats };
+  if (!result) return { group: new THREE.Group(), stats: evalStats, retained: currentRetained };
   const group = new THREE.Group();
   group.add(result);
-  return { group, stats: evalStats };
+  const retained = currentRetained;
+  currentRetained = null;
+  return { group, stats: evalStats, retained };
 }
 
 function tagBlockId(obj, node) {
@@ -201,7 +361,22 @@ function evalNode(node) {
     }
     case 'union': {
       if (needsFieldEval(node)) {
-        return tagBlockId(meshCSGNode(node), node);
+        // If a direct child is anti/complement, its polarity must interact
+        // with siblings — mesh the whole union as one SDF field.
+        const children = nodeChildren(node);
+        const hasAntiChild = children.some(c =>
+          Array.isArray(c) && (c[0] === 'anti' || c[0] === 'complement'));
+        if (hasAntiChild) {
+          return tagBlockId(meshCSGNode(node), node);
+        }
+        // Otherwise, evaluate each child independently so each child's
+        // meshCSGNode call can be cached separately.
+        const group = new THREE.Group();
+        for (const child of children) {
+          const obj = evalNode(child);
+          if (obj) group.add(obj);
+        }
+        return tagBlockId(group, node);
       }
       const group = new THREE.Group();
       for (const child of nodeChildren(node)) {
@@ -243,7 +418,13 @@ function evalNode(node) {
 
 let csgResolution = 48;
 export function getResolution() { return csgResolution; }
-export function setResolution(n) { csgResolution = Math.max(16, n); }
+export function setResolution(n) {
+  csgResolution = Math.max(16, n);
+  // Resolution is part of memo content hash, so all entries are invalid
+  sceneRegistry.clear();
+  depsIndex.clear();
+  memoTable.clear();
+}
 
 // Sample the CSG provenance field at each vertex and store as userData
 function stampProvenance(mesh, csgField) {
@@ -264,6 +445,47 @@ export function buildProvenanceField(ast) {
 }
 
 function meshCSGNode(node) {
+  const rootId = node._blockId;
+
+  // Layer 1: scene registry — non-stale entry means geometry is still valid
+  if (rootId) {
+    const regEntry = sceneRegistry.get(rootId);
+    if (regEntry && !regEntry.stale && regEntry.contentHash) {
+      if (evalStats) evalStats.cacheHits++;
+      // Mark this object as retained so viewport doesn't dispose it
+      if (currentRetained) {
+        regEntry.group.traverse(obj => currentRetained.add(obj));
+      }
+      return regEntry.group;
+    }
+  }
+
+  // Layer 2: memo table — content-addressed lookup
+  const contentHash = memoContentHash(node);
+  const memoHit = memoLookup(contentHash);
+  if (memoHit) {
+    if (evalStats) evalStats.cacheHits++;
+    // Register this result in the scene registry
+    if (rootId) {
+      const deps = new Set();
+      collectBlockIds(node, deps);
+      registryAdd(rootId, memoHit, deps, contentHash);
+    }
+    return memoHit;
+  }
+
+  // Helper: store result in both layers and return it
+  function cacheAndReturn(result) {
+    memoStore(contentHash, result);
+    if (rootId) {
+      const deps = new Set();
+      collectBlockIds(node, deps);
+      registryAdd(rootId, result, deps, contentHash);
+    }
+    return result;
+  }
+
+  // Cache miss — mesh from scratch
   const res = csgResolution;
   const bounds = estimateBounds(node);
   const csgField = evalCSGField(node);
@@ -301,7 +523,7 @@ function meshCSGNode(node) {
       intervalField = evalCSGFieldInterval(node);
     } catch (e) {
       console.warn('Octree interval eval failed, falling back to uniform grid:', e);
-      return meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField);
+      return cacheAndReturn(meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField));
     }
 
     // For the solid mesh, the actual field is:
@@ -333,7 +555,7 @@ function meshCSGNode(node) {
         octreeStats.bailedOut = true;
         evalStats.octree = octreeStats;
       }
-      return meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField);
+      return cacheAndReturn(meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField));
     }
 
     const solidGeo = meshOctreeLeaves(leaves, solidField, bounds, depth, solidColorField, octreeStats);
@@ -363,10 +585,10 @@ function meshCSGNode(node) {
 
   } else {
     // ---- Original uniform grid path ----
-    return meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField);
+    return cacheAndReturn(meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField));
   }
 
-  return group;
+  return cacheAndReturn(group);
 }
 
 // Original uniform-grid meshing (fallback)
@@ -793,6 +1015,135 @@ function recolorObject(obj, fromColor, toColor) {
       }
     }
   });
+}
+
+// ---- Cache benchmark ----
+
+const BENCH_MODELS = {
+  '2-branch': `(union
+  (intersect (cube 25) (sphere 18))
+  (translate 40 0 0 (fuse :k 5 (cube 20) (sphere 12))))`,
+  '3-branch': `(union
+  (intersect (cube 25) (sphere 18))
+  (translate 40 0 0 (fuse :k 5 (cube 20) (sphere 12)))
+  (translate -40 0 0 (intersect (sphere 15) (anti (cube 10)))))`,
+  '5-branch': `(union
+  (intersect (cube 25) (sphere 18))
+  (translate 40 0 0 (fuse :k 5 (cube 20) (sphere 12)))
+  (translate -40 0 0 (intersect (sphere 15) (anti (cube 10))))
+  (translate 0 40 0 (fuse :k 3 (cylinder 10 25) (sphere 14)))
+  (translate 0 -40 0 (intersect (cube 20) (anti (cylinder 8 30)))))`,
+  'text+csg': `(union
+  (twist :axis "y" :rate 0.05
+    (text "Hi" :size 20 :depth 4 :font "helvetiker"))
+  (translate 40 0 0 (intersect (cube 25) (sphere 18))))`,
+  'text-3br': `(union
+  (twist :axis "y" :rate 0.05
+    (text "Hi" :size 20 :depth 4 :font "helvetiker"))
+  (translate 40 0 0 (intersect (cube 25) (sphere 18)))
+  (translate -40 0 0 (fuse :k 5 (cube 20) (sphere 12))))`,
+};
+
+function tweakFirstBranch(sexpr) {
+  return sexpr.replace('(cube 25)', '(cube 26)');
+}
+
+function disposeResult(result) {
+  result.group.traverse(obj => {
+    if (result.retained && result.retained.has(obj)) return;
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material && obj.material.dispose) obj.material.dispose();
+  });
+}
+
+export function benchCache(resOverride) {
+  const res = resOverride || csgResolution;
+  const savedRes = csgResolution;
+  csgResolution = res;
+
+  const results = [];
+
+  for (const [name, sexpr] of Object.entries(BENCH_MODELS)) {
+    const ast1 = expandAST(parseSExpr(sexpr));
+    const ast2 = expandAST(parseSExpr(tweakFirstBranch(sexpr)));
+
+    // Cold: clear everything, evaluate original
+    clearSubtreeCache();
+    const t0 = performance.now();
+    const r1 = evaluate(ast1);
+    const coldMs = performance.now() - t0;
+    disposeResult(r1);
+
+    // Warm: cache populated from ast1. Evaluate ast2 (one branch tweaked).
+    // This simulates a param edit — notify would mark one branch stale,
+    // then evaluate finds sibling branches in memo table.
+    const t1 = performance.now();
+    const r2 = evaluate(ast2);
+    const warmMs = performance.now() - t1;
+    const warmHits = r2.stats.cacheHits;
+    disposeResult(r2);
+
+    // Undo test: evaluate ast1 again (memo table should have it)
+    const t1b = performance.now();
+    const r1b = evaluate(ast1);
+    const undoMs = performance.now() - t1b;
+    const undoHits = r1b.stats.cacheHits;
+    disposeResult(r1b);
+
+    // Uncached: clear everything, evaluate ast2 from scratch
+    clearSubtreeCache();
+    const t2 = performance.now();
+    const r3 = evaluate(ast2);
+    const uncachedMs = performance.now() - t2;
+    disposeResult(r3);
+
+    const speedup = uncachedMs > 0 ? (uncachedMs / warmMs).toFixed(1) : 'n/a';
+    const undoSpeedup = uncachedMs > 0 ? (uncachedMs / undoMs).toFixed(1) : 'n/a';
+
+    results.push({
+      model: name,
+      coldMs: Math.round(coldMs),
+      warmMs: Math.round(warmMs),
+      warmHits,
+      undoMs: Math.round(undoMs),
+      undoHits,
+      uncachedMs: Math.round(uncachedMs),
+      speedup,
+      undoSpeedup,
+    });
+  }
+
+  clearSubtreeCache();
+  csgResolution = savedRes;
+
+  const p = (s, n) => String(s).padEnd(n);
+  const lines = [`=== Subtree Cache Benchmark (res ${res}) ===`, ''];
+  lines.push(p('Model', 12) + p('Cold', 9) + p('Edit', 9) + p('Hits', 6) + p('Undo', 9) + p('Hits', 6) + p('No-cache', 9) + p('Edit-X', 8) + 'Undo-X');
+  lines.push('-'.repeat(76));
+  for (const r of results) {
+    lines.push(
+      p(r.model, 12) +
+      p(r.coldMs + 'ms', 9) +
+      p(r.warmMs + 'ms', 9) +
+      p(r.warmHits, 6) +
+      p(r.undoMs + 'ms', 9) +
+      p(r.undoHits, 6) +
+      p(r.uncachedMs + 'ms', 9) +
+      p(r.speedup + 'x', 8) +
+      r.undoSpeedup + 'x'
+    );
+  }
+  lines.push('');
+  lines.push('Cold     = first eval, empty cache');
+  lines.push('Edit     = eval after tweaking one branch (siblings cached)');
+  lines.push('Undo     = eval original again (memo table should have it)');
+  lines.push('No-cache = same edit, all caches cleared');
+  lines.push('Edit-X   = No-cache / Edit  (higher = better)');
+  lines.push('Undo-X   = No-cache / Undo  (higher = better, BDD-style reuse)');
+
+  const formatted = lines.join('\n');
+  console.log(formatted);
+  return { results, formatted };
 }
 
 // Re-exports from extracted modules
