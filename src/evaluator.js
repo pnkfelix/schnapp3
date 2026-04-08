@@ -1033,6 +1033,15 @@ const BENCH_MODELS = {
   (translate -40 0 0 (intersect (sphere 15) (anti (cube 10))))
   (translate 0 40 0 (fuse :k 3 (cylinder 10 25) (sphere 14)))
   (translate 0 -40 0 (intersect (cube 20) (anti (cylinder 8 30)))))`,
+  'text+csg': `(union
+  (twist :axis "y" :rate 0.05
+    (text "Hi" :size 20 :depth 4 :font "helvetiker"))
+  (translate 40 0 0 (intersect (cube 25) (sphere 18))))`,
+  'text-3br': `(union
+  (twist :axis "y" :rate 0.05
+    (text "Hi" :size 20 :depth 4 :font "helvetiker"))
+  (translate 40 0 0 (intersect (cube 25) (sphere 18)))
+  (translate -40 0 0 (fuse :k 5 (cube 20) (sphere 12))))`,
 };
 
 function tweakFirstBranch(sexpr) {
