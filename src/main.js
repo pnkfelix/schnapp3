@@ -255,7 +255,8 @@ function runPipeline(changedBlockId) {
     meshingIndicator.classList.add('visible');
     pipelinePending = true;
 
-    const targetDepth = resToDepth(getResolution());
+    const currentRes = getResolution();
+    const targetDepth = resToDepth(currentRes);
     const provField = buildProvenanceField(ast);
     cancelProgressive = meshProgressive(ast, targetDepth, getUseOctree(), (group, depth, stats, isFinal) => {
       viewport.setContent(group);
@@ -274,7 +275,7 @@ function runPipeline(changedBlockId) {
         pipelinePending = false;
         cancelProgressive = null;
       }
-    }, updateMeshingStatus, provField);
+    }, updateMeshingStatus, provField, currentRes);
   } else {
     // Simple model — sync eval (instant)
     if (pipelinePending) return;
@@ -318,7 +319,8 @@ codeOutput.addEventListener('input', () => {
       if (useGPUMode && isGPUAvailable()) {
         runGPUPipeline(ast);
       } else if (useProgressiveMode && needsFieldEval(ast)) {
-        const targetDepth = resToDepth(getResolution());
+        const currentRes2 = getResolution();
+        const targetDepth = resToDepth(currentRes2);
         const provField = buildProvenanceField(ast);
         meshingIndicator.classList.add('visible');
         cancelProgressive = meshProgressive(ast, targetDepth, getUseOctree(), (group, depth, stats, isFinal) => {
@@ -335,7 +337,7 @@ codeOutput.addEventListener('input', () => {
             stopMeshingTimer();
             cancelProgressive = null;
           }
-        }, updateMeshingStatus, provField);
+        }, updateMeshingStatus, provField, currentRes2);
       } else {
         const { group, stats, retained } = evaluate(ast);
         viewport.setContent(group, retained);

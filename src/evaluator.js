@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { meshField } from './surface-nets.js';
 import { evalCSGFieldInterval, setTextBoundsProvider } from './interval-eval.js';
-import { buildOctree, meshOctreeLeaves, resToDepth } from './octree-mesh.js';
+import { buildOctree, meshOctreeLeaves, resToDepth, depthForBounds, resToVoxelSize } from './octree-mesh.js';
 import { nodeChildren, COLOR_MAP, DEFAULT_COLOR, UNSET_COLOR, hexToRgb, DEFAULT_RGB, UNSET_RGB, EMPTY } from './eval/ast-utils.js';
 import { estimateBounds, mergeBounds } from './eval/bounds.js';
 import { evalField } from './eval/sdf-field.js';
@@ -538,7 +538,9 @@ function meshCSGNode(node) {
 
   if (useOctree) {
     // ---- Octree-accelerated path ----
-    const depth = resToDepth(res);
+    // Depth is computed from bounds so that voxel size is absolute —
+    // moving a distant object doesn't coarsen nearby geometry.
+    const depth = depthForBounds(bounds, res);
     const octreeStats = {
       nodesVisited: 0, nodesCulledOutside: 0, nodesCulledInside: 0,
       leafCells: 0, activeCells: 0, surfaceVerts: 0, pointEvals: 0, faces: 0
@@ -598,8 +600,10 @@ function meshCSGNode(node) {
     }
 
     // Anti-solid: use uniform grid (anti-solids are typically small/rare)
-    if (evalStats) evalStats.voxels += (res + 1) ** 3;
-    const antiGeo = meshField(antiField, bounds, res);
+    // Use absolute voxel sizing, capped to avoid huge allocations
+    const antiGridRes = Math.min(1 << depth, 128);
+    if (evalStats) evalStats.voxels += (antiGridRes + 1) ** 3;
+    const antiGeo = meshField(antiField, bounds, antiGridRes);
     if (antiGeo.index && antiGeo.index.count > 0) {
       addAntiMesh(group, antiGeo);
     }
@@ -620,10 +624,13 @@ function meshCSGNode(node) {
 
 // Original uniform-grid meshing (fallback)
 function meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField) {
-  if (evalStats) evalStats.voxels += (res + 1) ** 3;
+  // Compute uniform grid resolution from bounds + absolute voxel size, capped at 256
+  const uniformDepth = depthForBounds(bounds, res);
+  const uniformRes = Math.min(1 << uniformDepth, 256);
+  if (evalStats) evalStats.voxels += (uniformRes + 1) ** 3;
   const group = new THREE.Group();
 
-  const solidGeo = meshField(solidField, bounds, res, solidColorField);
+  const solidGeo = meshField(solidField, bounds, uniformRes, solidColorField);
   if (solidGeo.index && solidGeo.index.count > 0) {
     const solidMat = new THREE.MeshStandardMaterial({
       vertexColors: true,
@@ -634,7 +641,7 @@ function meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorF
     group.add(solidMesh);
   }
 
-  const antiGeo = meshField(antiField, bounds, res);
+  const antiGeo = meshField(antiField, bounds, uniformRes);
   if (antiGeo.index && antiGeo.index.count > 0) {
     addAntiMesh(group, antiGeo);
   }
