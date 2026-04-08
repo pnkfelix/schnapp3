@@ -122,7 +122,7 @@ function memoStore(hash, group) {
     const oldest = memoTable.keys().next().value;
     memoTable.delete(oldest);
   }
-  memoTable.set(hash, deepCloneGroup(group));
+  memoTable.set(hash, deepCloneObject(group));
 }
 
 function memoLookup(hash) {
@@ -131,7 +131,7 @@ function memoLookup(hash) {
   // Move to end (refresh LRU position)
   memoTable.delete(hash);
   memoTable.set(hash, cached);
-  return deepCloneGroup(cached);
+  return deepCloneObject(cached);
 }
 
 // --- Public API ---
@@ -181,27 +181,24 @@ function collectBlockIds(node, ids) {
   }
 }
 
-function deepCloneGroup(group) {
+function deepCloneObject(obj) {
+  if (obj.isMesh) {
+    const geo = obj.geometry.clone();
+    const mat = obj.material.clone ? obj.material.clone() : obj.material;
+    const mesh = new THREE.Mesh(geo, mat);
+    if (obj.userData.vertexBlockIds) mesh.userData.vertexBlockIds = obj.userData.vertexBlockIds;
+    if (obj.userData.blockId) mesh.userData.blockId = obj.userData.blockId;
+    return mesh;
+  }
+  if (obj.isLineSegments) {
+    const geo = obj.geometry.clone();
+    const mat = obj.material.clone ? obj.material.clone() : obj.material;
+    return new THREE.LineSegments(geo, mat);
+  }
+  // Group (or any Object3D with children)
   const clone = new THREE.Group();
-  for (const child of group.children) {
-    if (child.isMesh) {
-      const geo = child.geometry.clone();
-      const mat = child.material.clone ? child.material.clone() : child.material;
-      const mesh = new THREE.Mesh(geo, mat);
-      if (child.userData.vertexBlockIds) {
-        mesh.userData.vertexBlockIds = child.userData.vertexBlockIds;
-      }
-      if (child.userData.blockId) {
-        mesh.userData.blockId = child.userData.blockId;
-      }
-      clone.add(mesh);
-    } else if (child.isLineSegments) {
-      const geo = child.geometry.clone();
-      const mat = child.material.clone ? child.material.clone() : child.material;
-      clone.add(new THREE.LineSegments(geo, mat));
-    } else if (child.isGroup) {
-      clone.add(deepCloneGroup(child));
-    }
+  for (const child of obj.children) {
+    clone.add(deepCloneObject(child));
   }
   return clone;
 }
@@ -274,6 +271,29 @@ function evalNode(node) {
       return tagBlockId(new THREE.Mesh(geo, mat), node);
     }
     case 'text': {
+      // Cache check — TextGeometry is expensive to construct
+      const textBlockId = node._blockId;
+      if (textBlockId) {
+        const regEntry = sceneRegistry.get(textBlockId);
+        if (regEntry && !regEntry.stale && regEntry.contentHash) {
+          if (evalStats) evalStats.cacheHits++;
+          if (currentRetained) {
+            regEntry.group.traverse(obj => currentRetained.add(obj));
+          }
+          return regEntry.group;
+        }
+      }
+      const textContentHash = memoContentHash(node);
+      const textMemoHit = memoLookup(textContentHash);
+      if (textMemoHit) {
+        if (evalStats) evalStats.cacheHits++;
+        if (textBlockId) {
+          const deps = new Set([textBlockId]);
+          registryAdd(textBlockId, textMemoHit, deps, textContentHash);
+        }
+        return textMemoHit;
+      }
+
       const p = node[1];
       const content = p.content || 'Text';
       const fontSize = p.size || 20;
@@ -306,7 +326,14 @@ function evalNode(node) {
       const cz = -(bb.min.z + bb.max.z) / 2;
       geo.translate(cx, cy, cz);
       const mat = new THREE.MeshStandardMaterial({ color: COLOR_MAP[DEFAULT_COLOR] });
-      return tagBlockId(new THREE.Mesh(geo, mat), node);
+      const textMesh = new THREE.Mesh(geo, mat);
+      // Cache the result
+      memoStore(textContentHash, textMesh);
+      if (textBlockId) {
+        const deps = new Set([textBlockId]);
+        registryAdd(textBlockId, textMesh, deps, textContentHash);
+      }
+      return tagBlockId(textMesh, node);
     }
     case 'translate': {
       const p = node[1];
@@ -1042,6 +1069,14 @@ const BENCH_MODELS = {
     (text "Hi" :size 20 :depth 4 :font "helvetiker"))
   (translate 40 0 0 (intersect (cube 25) (sphere 18)))
   (translate -40 0 0 (fuse :k 5 (cube 20) (sphere 12))))`,
+  'plaintext': `(union
+  (sphere 15)
+  (translate 0 0 20
+    (text "Hello" :size 20 :depth 4 :font "helvetiker"))
+  (translate 15 40 0
+    (radial :axis "y" :count 6
+      (translate 40 0 10
+        (cube 25)))))`,
 };
 
 function tweakFirstBranch(sexpr) {
