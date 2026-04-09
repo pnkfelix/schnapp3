@@ -474,9 +474,13 @@ html, body {
 }
 
 .drop-zone--gap.drop-zone--teleport-target {
-  min-height: 36px;
+  min-height: 40px;
   border-color: #e94560;
   background: rgba(233,69,96,0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
 }
 
 .teleport-exit-icon {
