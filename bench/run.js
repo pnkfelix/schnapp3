@@ -34,7 +34,7 @@ import { expandAST } from '../src/expand.js';
 import { evalCSGField, estimateBounds as estimateBoundsCSG, UNSET_COLOR, UNSET_RGB, setTextSDFGrids, getTextGridBounds } from '../src/csg-field.js';
 import { evalCSGFieldInterval, setTextBoundsProvider } from '../src/interval-eval.js';
 import { classify } from '../src/interval.js';
-import { buildOctree, meshOctreeLeavesRaw, meshFieldRaw, resToDepth } from '../src/octree-core.js';
+import { buildOctree, meshOctreeLeavesRaw, meshFieldRaw, resToDepth, depthForBounds } from '../src/octree-core.js';
 // Main-thread path imports
 import { evaluate, setResolution, setUseOctree, benchCache } from '../src/evaluator.js';
 import { evalField } from '../src/eval/sdf-field.js';
@@ -198,10 +198,12 @@ function validateOctree(solidIntervalField, solidField, bounds, maxDepth) {
 // Mode: worker — replicates mesh-worker.js logic exactly
 // ============================================================
 
-function runWorkerPipeline(ast, depth) {
+function runWorkerPipeline(ast, depth, resolution) {
   const t0 = performance.now();
 
   const bounds = estimateBoundsCSG(ast);
+  // Use absolute voxel sizing when resolution is provided
+  if (resolution) depth = depthForBounds(bounds, resolution);
   const csgField = evalCSGField(ast);
 
   const solidField = (x, y, z) => {
@@ -475,7 +477,7 @@ async function main() {
     console.log();
     console.log(`Running worker-equivalent pipeline...`);
 
-    const result = runWorkerPipeline(ast, depth);
+    const result = runWorkerPipeline(ast, depth, resolution);
     pipelineMs = result.elapsed;
 
     const s = result.stats;
@@ -555,7 +557,7 @@ async function main() {
       const textGrids = collectTextSDFGrids(ast, loadedFonts['helvetiker'], 50);
       setTextSDFGrids(textGrids);
     }
-    const workerResult = runWorkerPipeline(ast, depth);
+    const workerResult = runWorkerPipeline(ast, depth, resolution);
     const workerMesh = extractWorkerMeshData(workerResult);
     console.log(`  worker (uniform):        ${workerMesh.map(m => `${m.vertexCount} verts, ${m.faceCount} faces`).join('; ')}`);
 

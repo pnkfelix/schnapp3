@@ -132,7 +132,7 @@ function buildTextSDFGrids(textNodes, resolution) {
   return grids;
 }
 
-export function meshProgressive(ast, targetDepth, useOctree, onResult, onStatus, provenanceField) {
+export function meshProgressive(ast, targetDepth, useOctree, onResult, onStatus, provenanceField, resolution) {
   const generation = ++currentGeneration;
 
   // Choose refinement levels: preview → every 2 depths → target
@@ -209,6 +209,9 @@ export function meshProgressive(ast, targetDepth, useOctree, onResult, onStatus,
     worker.onerror = handleError(worker, depth);
 
     const msg = { id: generation, ast, depth, useOctree };
+    // Pass resolution so worker computes depth from bounds (absolute voxel sizing).
+    // Only for the final depth — preview levels use fixed lower depths for speed.
+    if (resolution && depth === targetDepth) msg.resolution = resolution;
     if (textSDFGrids && Object.keys(textSDFGrids).length > 0) {
       msg.textSDFGrids = textSDFGrids;
     }

@@ -307,3 +307,27 @@ export function meshFieldRaw(field, bounds, resolution, colorField) {
 export function resToDepth(resolution) {
   return Math.max(3, Math.ceil(Math.log2(resolution)));
 }
+
+// Absolute voxel size: resolution controls detail per world unit.
+// At resolution R, voxelSize = UNIT_SIZE / R.
+// A 20-unit cube at res 48 gets ~20 voxels across (voxelSize ≈ 1.0).
+const UNIT_SIZE = 48;  // so that res 48 → voxelSize = 1.0
+const MAX_DEPTH = 10;  // cap at 1024 cells per axis
+
+// Compute a fixed voxel size from the resolution setting.
+// This size never changes regardless of the bounding box.
+export function resToVoxelSize(resolution) {
+  return UNIT_SIZE / resolution;
+}
+
+// Compute the octree depth needed for a given bounding box at a fixed voxel size.
+// The depth is whatever it takes to achieve the target voxel size — no artificial caps.
+export function depthForBounds(bounds, resolution) {
+  const voxelSize = resToVoxelSize(resolution);
+  const maxExtent = Math.max(
+    bounds.max[0] - bounds.min[0],
+    bounds.max[1] - bounds.min[1],
+    bounds.max[2] - bounds.min[2]
+  );
+  return Math.min(MAX_DEPTH, Math.max(3, Math.ceil(Math.log2(maxExtent / voxelSize))));
+}

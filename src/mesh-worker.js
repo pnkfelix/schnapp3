@@ -1,9 +1,9 @@
 // Web Worker for off-thread mesh computation.
-// Receives an AST + bounds + depth, runs the full octree+surface-nets pipeline,
+// Receives an AST + resolution + depth, runs the full octree+surface-nets pipeline,
 // returns raw typed arrays for the main thread to wrap in Three.js geometry.
 
 import { evalCSGFieldInterval, setTextBoundsProvider } from './interval-eval.js';
-import { buildOctree, meshOctreeLeavesRaw, meshFieldRaw, resToDepth } from './octree-core.js';
+import { buildOctree, meshOctreeLeavesRaw, meshFieldRaw, resToDepth, depthForBounds } from './octree-core.js';
 import { evalCSGField, estimateBounds, UNSET_COLOR, UNSET_RGB, setTextSDFGrids, getTextGridBounds } from './csg-field.js';
 
 // Wire up the text bounds provider so the interval evaluator can use
@@ -13,7 +13,7 @@ setTextBoundsProvider(getTextGridBounds);
 // --- Worker message handler ---
 
 self.onmessage = function(e) {
-  const { id, ast, depth, useOctree, textSDFGrids } = e.data;
+  const { id, ast, depth: legacyDepth, resolution, useOctree, textSDFGrids } = e.data;
 
   // Install text SDF grids so evalCSGField can use them
   if (textSDFGrids) setTextSDFGrids(textSDFGrids);
@@ -21,6 +21,10 @@ self.onmessage = function(e) {
 
   try {
     const bounds = estimateBounds(ast);
+    // Use absolute voxel sizing: compute depth from bounds so that
+    // detail is consistent regardless of bounding box size.
+    // Fall back to legacy depth for backwards compatibility.
+    const depth = resolution ? depthForBounds(bounds, resolution) : legacyDepth;
     const csgField = evalCSGField(ast);
 
     const solidField = (x, y, z) => {
