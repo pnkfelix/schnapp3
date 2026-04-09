@@ -308,32 +308,26 @@ export function resToDepth(resolution) {
   return Math.max(3, Math.ceil(Math.log2(resolution)));
 }
 
-// Reference size for voxel calibration: at the given resolution, an object
-// whose bounding box has this extent gets exactly resToDepth(resolution) levels.
-// Models up to this extent keep the base depth (same behavior as before).
-// Models larger than this get extra depth to maintain consistent voxel size.
-// Calibrated above the largest typical model extent (~140 for radial patterns).
-const REFERENCE_EXTENT = 150;
-const MAX_DEPTH = 9;  // cap at 512 cells per axis
+// Absolute voxel size: resolution controls detail per world unit.
+// At resolution R, voxelSize = UNIT_SIZE / R.
+// A 20-unit cube at res 48 gets ~20 voxels across (voxelSize ≈ 1.0).
+const UNIT_SIZE = 48;  // so that res 48 → voxelSize = 1.0
+const MAX_DEPTH = 10;  // cap at 1024 cells per axis
 
 // Compute a fixed voxel size from the resolution setting.
 // This size never changes regardless of the bounding box.
 export function resToVoxelSize(resolution) {
-  return REFERENCE_EXTENT / (1 << resToDepth(resolution));
+  return UNIT_SIZE / resolution;
 }
 
 // Compute the octree depth needed for a given bounding box at a fixed voxel size.
-// Larger bounding boxes get MORE depth to maintain the same voxel size.
-// Smaller bounding boxes keep the base depth (never reduce quality).
+// The depth is whatever it takes to achieve the target voxel size — no artificial caps.
 export function depthForBounds(bounds, resolution) {
-  const baseDepth = resToDepth(resolution);
   const voxelSize = resToVoxelSize(resolution);
   const maxExtent = Math.max(
     bounds.max[0] - bounds.min[0],
     bounds.max[1] - bounds.min[1],
     bounds.max[2] - bounds.min[2]
   );
-  const neededDepth = Math.ceil(Math.log2(maxExtent / voxelSize));
-  // Only increase depth for large bounding boxes, never decrease
-  return Math.min(MAX_DEPTH, Math.max(baseDepth, neededDepth));
+  return Math.min(MAX_DEPTH, Math.max(3, Math.ceil(Math.log2(maxExtent / voxelSize))));
 }
