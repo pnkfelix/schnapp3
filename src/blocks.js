@@ -920,10 +920,13 @@ function showTeleportTargets() {
     }
     for (const es of exprTargets) {
       es.classList.add('expr-slot--teleport-target');
+      // Place icon as sibling in the parent label's flex layout,
+      // not crammed inside the small input wrapper
       const icon = document.createElement('span');
       icon.className = 'teleport-exit-icon';
       icon.innerHTML = EXIT_PORTAL_SVG;
-      es.appendChild(icon);
+      icon.dataset.exprTarget = es.dataset.exprTarget;
+      es.parentElement.appendChild(icon);
     }
   });
 }
@@ -1285,8 +1288,10 @@ function onWorkspaceClick(e) {
         } else if (raw) {
           moveBlock(teleportBlockId, raw);
         }
-      } else if (exprSlot) {
-        const raw = exprSlot.dataset.exprTarget;
+      } else {
+        // Expr-slot target: clicked the slot itself or its sibling icon
+        const raw = exprSlot ? exprSlot.dataset.exprTarget
+                  : exitIcon ? exitIcon.dataset.exprTarget : null;
         if (raw) {
           const colonIdx = raw.indexOf(':');
           const parentId = raw.slice(0, colonIdx);

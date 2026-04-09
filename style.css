@@ -503,6 +503,7 @@ html, body {
   border-color: #e94560;
   background: rgba(233,69,96,0.15);
   cursor: pointer;
+  transition: border-color 0.3s ease, background 0.3s ease;
 }
 
 /* ---- Block type colors ---- */
