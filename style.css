@@ -357,7 +357,6 @@ html, body {
   gap: 6px;
   margin-bottom: 4px;
   font-size: 13px;
-  flex-wrap: nowrap;
 }
 
 .block__params label span {
@@ -506,6 +505,12 @@ html, body {
   background: rgba(233,69,96,0.15);
   cursor: pointer;
   transition: border-color 0.3s ease, background 0.3s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.expr-slot--teleport-target input {
   flex: 1;
   min-width: 0;
 }
