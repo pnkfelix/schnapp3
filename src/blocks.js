@@ -1113,22 +1113,18 @@ function renderBlock(block) {
     header.appendChild(promote);
   }
 
-  // Teleport button — only on real blocks, not inline expr-slot literals
-  const isExprSlotBlock = block.parent &&
-    Object.values(allBlocks.get(block.parent)?.exprSlots || {}).some(b => b?.id === block.id);
-  if (!isExprSlotBlock) {
-    const teleportBtn = document.createElement('button');
-    teleportBtn.className = 'block__teleport';
-    teleportBtn.dataset.teleportId = block.id;
-    teleportBtn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18"><ellipse cx="15" cy="12" rx="6" ry="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2 12h9m-3-3.5 3 3.5-3 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    if (teleportBlockId && teleportBlockId !== block.id) {
-      teleportBtn.disabled = true;
-    }
-    if (teleportBlockId === block.id) {
-      teleportBtn.classList.add('block__teleport--active');
-    }
-    header.appendChild(teleportBtn);
+  // Teleport button (portal icon — oval with arrow going in)
+  const teleportBtn = document.createElement('button');
+  teleportBtn.className = 'block__teleport';
+  teleportBtn.dataset.teleportId = block.id;
+  teleportBtn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18"><ellipse cx="15" cy="12" rx="6" ry="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2 12h9m-3-3.5 3 3.5-3 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  if (teleportBlockId && teleportBlockId !== block.id) {
+    teleportBtn.disabled = true;
   }
+  if (teleportBlockId === block.id) {
+    teleportBtn.classList.add('block__teleport--active');
+  }
+  header.appendChild(teleportBtn);
 
   const del = document.createElement('button');
   del.className = 'block__delete';
