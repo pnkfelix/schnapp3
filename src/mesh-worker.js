@@ -3,7 +3,7 @@
 // returns raw typed arrays for the main thread to wrap in Three.js geometry.
 
 import { evalCSGFieldInterval, setTextBoundsProvider } from './interval-eval.js';
-import { buildOctree, meshOctreeLeavesRaw, meshFieldRaw, resToDepth, depthForBounds } from './octree-core.js';
+import { buildOctree, meshOctreeLeavesRaw, meshFieldRaw, resToDepth, depthForBounds, resToVoxelSize, perAxisResolution } from './octree-core.js';
 import { evalCSGField, estimateBounds, UNSET_COLOR, UNSET_RGB, setTextSDFGrids, getTextGridBounds } from './csg-field.js';
 
 // Wire up the text bounds provider so the interval evaluator can use
@@ -82,16 +82,18 @@ self.onmessage = function(e) {
     }
 
     if (!usedOctree) {
-      // Uniform fallback at full requested resolution
-      const fallbackRes = 1 << depth;
+      // Uniform fallback with per-axis resolution for non-cubic bounds
+      const voxelSize = resToVoxelSize(resolution);
+      const fallbackRes = perAxisResolution(bounds, voxelSize, 256 * 256 * 256);
       solidRaw = meshFieldRaw(solidField, bounds, fallbackRes, solidColorField);
-      stats.pointEvals = (fallbackRes + 1) ** 3;
+      stats.pointEvals = (fallbackRes[0] + 1) * (fallbackRes[1] + 1) * (fallbackRes[2] + 1);
     }
 
-    // Anti-solid (always uniform, capped at reasonable res)
-    const antiRes = Math.min(1 << depth, 48);
+    // Anti-solid (always uniform, per-axis, capped)
+    const antiVoxelSize = resToVoxelSize(resolution);
+    const antiRes = perAxisResolution(bounds, antiVoxelSize, 48 * 48 * 48);
     const antiRaw = meshFieldRaw(antiField, bounds, antiRes, null);
-    stats.pointEvals += (antiRes + 1) ** 3;
+    stats.pointEvals += (antiRes[0] + 1) * (antiRes[1] + 1) * (antiRes[2] + 1);
 
     const elapsed = Math.round(performance.now() - t0);
 

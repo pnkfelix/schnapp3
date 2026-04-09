@@ -3,6 +3,15 @@
 
 import { nodeChildren } from './ast-utils.js';
 
+// L2 rotation radius: the farthest corner distance in the rotation plane.
+// Uses sqrt(max(|lo|,|hi|)² on axis0 + max(|lo|,|hi|)² on axis1)
+// instead of the L∞ max which over-estimates for non-square cross-sections.
+function rotationRadius(bounds, a0, a1) {
+  const ext0 = Math.max(Math.abs(bounds.min[a0]), Math.abs(bounds.max[a0]));
+  const ext1 = Math.max(Math.abs(bounds.min[a1]), Math.abs(bounds.max[a1]));
+  return Math.sqrt(ext0 * ext0 + ext1 * ext1);
+}
+
 export function estimateBounds(node, offset = [0, 0, 0]) {
   const type = node[0];
   const pad = 5;
@@ -72,10 +81,7 @@ export function estimateBounds(node, offset = [0, 0, 0]) {
       const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
       const axis = node[1].axis || 'y';
       const [a0, a1] = axis === 'x' ? [1, 2] : axis === 'y' ? [0, 2] : [0, 1];
-      const r = Math.max(
-        Math.abs(childBounds.min[a0]), Math.abs(childBounds.max[a0]),
-        Math.abs(childBounds.min[a1]), Math.abs(childBounds.max[a1])
-      );
+      const r = rotationRadius(childBounds, a0, a1);
       childBounds.min[a0] = offset[a0] - r;
       childBounds.max[a0] = offset[a0] + r;
       childBounds.min[a1] = offset[a1] - r;
@@ -87,10 +93,7 @@ export function estimateBounds(node, offset = [0, 0, 0]) {
       const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
       const axis = node[1].axis || 'y';
       const [a0, a1] = axis === 'x' ? [1, 2] : axis === 'y' ? [0, 2] : [0, 1];
-      const r = Math.max(
-        Math.abs(childBounds.min[a0]), Math.abs(childBounds.max[a0]),
-        Math.abs(childBounds.min[a1]), Math.abs(childBounds.max[a1])
-      );
+      const r = rotationRadius(childBounds, a0, a1);
       childBounds.min[a0] = offset[a0] - r;
       childBounds.max[a0] = offset[a0] + r;
       childBounds.min[a1] = offset[a1] - r;
@@ -102,10 +105,7 @@ export function estimateBounds(node, offset = [0, 0, 0]) {
       const childBounds = mergeBounds(children.map(c => estimateBounds(c, offset)));
       const axis = node[1].axis || 'y';
       const [a0, a1] = axis === 'x' ? [1, 2] : axis === 'y' ? [0, 2] : [0, 1];
-      const r = Math.max(
-        Math.abs(childBounds.min[a0]), Math.abs(childBounds.max[a0]),
-        Math.abs(childBounds.min[a1]), Math.abs(childBounds.max[a1])
-      );
+      const r = rotationRadius(childBounds, a0, a1);
       childBounds.min[a0] = offset[a0] - r;
       childBounds.max[a0] = offset[a0] + r;
       childBounds.min[a1] = offset[a1] - r;

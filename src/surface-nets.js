@@ -7,27 +7,33 @@ import * as THREE from 'three';
 
 // Pure computation — returns raw arrays, no Three.js dependency.
 // colorField: optional (x,y,z) => [r, g, b] in 0..1
+// resolution: number (isotropic) or [nx, ny, nz] (per-axis)
 export function meshFieldRaw(field, bounds, resolution = 48, colorField = null) {
   const [minX, minY, minZ] = bounds.min;
   const [maxX, maxY, maxZ] = bounds.max;
-  const n = resolution;
-  const sx = (maxX - minX) / n;
-  const sy = (maxY - minY) / n;
-  const sz = (maxZ - minZ) / n;
+  let nx, ny, nz;
+  if (Array.isArray(resolution)) {
+    [nx, ny, nz] = resolution;
+  } else {
+    nx = ny = nz = resolution;
+  }
+  const sx = (maxX - minX) / nx;
+  const sy = (maxY - minY) / ny;
+  const sz = (maxZ - minZ) / nz;
 
-  // Sample field on (n+1)^3 grid
-  const gn = n + 1;
-  const grid = new Float32Array(gn * gn * gn);
-  for (let z = 0; z < gn; z++)
-    for (let y = 0; y < gn; y++)
-      for (let x = 0; x < gn; x++)
-        grid[x + y * gn + z * gn * gn] =
+  // Sample field on (nx+1)*(ny+1)*(nz+1) grid
+  const gnx = nx + 1, gny = ny + 1, gnz = nz + 1;
+  const grid = new Float32Array(gnx * gny * gnz);
+  for (let z = 0; z < gnz; z++)
+    for (let y = 0; y < gny; y++)
+      for (let x = 0; x < gnx; x++)
+        grid[x + y * gnx + z * gnx * gny] =
           field(minX + x * sx, minY + y * sy, minZ + z * sz);
 
-  const g = (x, y, z) => grid[x + y * gn + z * gn * gn];
+  const g = (x, y, z) => grid[x + y * gnx + z * gnx * gny];
 
   // Phase 1: For each cell crossed by the surface, compute a vertex
-  const vertIndex = new Int32Array(n * n * n).fill(-1);
+  const vertIndex = new Int32Array(nx * ny * nz).fill(-1);
   const verts = []; // flat [x,y,z, x,y,z, ...]
 
   const cornerOff = [
@@ -40,9 +46,9 @@ export function meshFieldRaw(field, bounds, resolution = 48, colorField = null) 
     [0,4],[1,5],[2,6],[3,7]   // z-aligned
   ];
 
-  for (let cz = 0; cz < n; cz++) {
-    for (let cy = 0; cy < n; cy++) {
-      for (let cx = 0; cx < n; cx++) {
+  for (let cz = 0; cz < nz; cz++) {
+    for (let cy = 0; cy < ny; cy++) {
+      for (let cx = 0; cx < nx; cx++) {
         const vals = cornerOff.map(([dx,dy,dz]) => g(cx+dx, cy+dy, cz+dz));
 
         let hasNeg = false, hasPos = false;
@@ -64,7 +70,7 @@ export function meshFieldRaw(field, bounds, resolution = 48, colorField = null) 
           }
         }
 
-        vertIndex[cx + cy * n + cz * n * n] = verts.length / 3;
+        vertIndex[cx + cy * nx + cz * nx * ny] = verts.length / 3;
         verts.push(px / count, py / count, pz / count);
       }
     }
@@ -72,7 +78,7 @@ export function meshFieldRaw(field, bounds, resolution = 48, colorField = null) 
 
   // Phase 2: Emit quads — for each grid edge with a sign change,
   // connect the 4 surrounding cells' vertices into two triangles.
-  const ci = (x, y, z) => vertIndex[x + y * n + z * n * n];
+  const ci = (x, y, z) => vertIndex[x + y * nx + z * nx * ny];
   const faces = [];
 
   function quad(c0, c1, c2, c3, flip) {
@@ -86,23 +92,23 @@ export function meshFieldRaw(field, bounds, resolution = 48, colorField = null) 
   }
 
   // X-edges: (ix,iy,iz)→(ix+1,iy,iz), cells: 4 sharing that edge
-  for (let iz = 1; iz < n; iz++)
-    for (let iy = 1; iy < n; iy++)
-      for (let ix = 0; ix < n; ix++)
+  for (let iz = 1; iz < nz; iz++)
+    for (let iy = 1; iy < ny; iy++)
+      for (let ix = 0; ix < nx; ix++)
         if ((g(ix,iy,iz) < 0) !== (g(ix+1,iy,iz) < 0))
           quad([ix,iy-1,iz-1],[ix,iy,iz-1],[ix,iy,iz],[ix,iy-1,iz], g(ix,iy,iz) >= 0);
 
   // Y-edges: (ix,iy,iz)→(ix,iy+1,iz)
-  for (let iz = 1; iz < n; iz++)
-    for (let iy = 0; iy < n; iy++)
-      for (let ix = 1; ix < n; ix++)
+  for (let iz = 1; iz < nz; iz++)
+    for (let iy = 0; iy < ny; iy++)
+      for (let ix = 1; ix < nx; ix++)
         if ((g(ix,iy,iz) < 0) !== (g(ix,iy+1,iz) < 0))
           quad([ix-1,iy,iz-1],[ix,iy,iz-1],[ix,iy,iz],[ix-1,iy,iz], g(ix,iy,iz) >= 0);
 
   // Z-edges: (ix,iy,iz)→(ix,iy,iz+1)
-  for (let iz = 0; iz < n; iz++)
-    for (let iy = 1; iy < n; iy++)
-      for (let ix = 1; ix < n; ix++)
+  for (let iz = 0; iz < nz; iz++)
+    for (let iy = 1; iy < ny; iy++)
+      for (let ix = 1; ix < nx; ix++)
         if ((g(ix,iy,iz) < 0) !== (g(ix,iy,iz+1) < 0))
           quad([ix-1,iy-1,iz],[ix,iy-1,iz],[ix,iy,iz],[ix-1,iy,iz], g(ix,iy,iz) >= 0);
 
@@ -111,13 +117,13 @@ export function meshFieldRaw(field, bounds, resolution = 48, colorField = null) 
   const eps = Math.min(sx, sy, sz) * 0.5;
   for (let i = 0; i < verts.length; i += 3) {
     const x = verts[i], y = verts[i+1], z = verts[i+2];
-    let nx = field(x + eps, y, z) - field(x - eps, y, z);
-    let ny = field(x, y + eps, z) - field(x, y - eps, z);
-    let nz = field(x, y, z + eps) - field(x, y, z - eps);
-    const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-    normals[i] = nx / len;
-    normals[i + 1] = ny / len;
-    normals[i + 2] = nz / len;
+    let fnx = field(x + eps, y, z) - field(x - eps, y, z);
+    let fny = field(x, y + eps, z) - field(x, y - eps, z);
+    let fnz = field(x, y, z + eps) - field(x, y, z - eps);
+    const len = Math.sqrt(fnx * fnx + fny * fny + fnz * fnz) || 1;
+    normals[i] = fnx / len;
+    normals[i + 1] = fny / len;
+    normals[i + 2] = fnz / len;
   }
 
   const positions = new Float32Array(verts);
@@ -148,6 +154,7 @@ export function rawToGeometry(raw) {
 }
 
 // Original API — returns Three.js BufferGeometry (used by evaluator.js)
+// resolution: number (isotropic) or [nx, ny, nz] (per-axis)
 export function meshField(field, bounds, resolution = 48, colorField = null) {
   const raw = meshFieldRaw(field, bounds, resolution, colorField);
   return rawToGeometry(raw);

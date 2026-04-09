@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-export { buildOctree, resToDepth, depthForBounds, resToVoxelSize } from './octree-core.js';
+export { buildOctree, resToDepth, depthForBounds, resToVoxelSize, perAxisResolution } from './octree-core.js';
 import { meshOctreeLeavesRaw } from './octree-core.js';
 
 // Wrap raw mesh data into Three.js BufferGeometry

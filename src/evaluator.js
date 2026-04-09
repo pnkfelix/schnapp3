@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import { meshField } from './surface-nets.js';
 import { evalCSGFieldInterval, setTextBoundsProvider } from './interval-eval.js';
-import { buildOctree, meshOctreeLeaves, resToDepth, depthForBounds, resToVoxelSize } from './octree-mesh.js';
+import { buildOctree, meshOctreeLeaves, resToDepth, depthForBounds, resToVoxelSize, perAxisResolution } from './octree-mesh.js';
 import { nodeChildren, COLOR_MAP, DEFAULT_COLOR, UNSET_COLOR, hexToRgb, DEFAULT_RGB, UNSET_RGB, EMPTY } from './eval/ast-utils.js';
 import { estimateBounds, mergeBounds } from './eval/bounds.js';
 import { evalField } from './eval/sdf-field.js';
@@ -600,9 +600,10 @@ function meshCSGNode(node) {
     }
 
     // Anti-solid: use uniform grid (anti-solids are typically small/rare)
-    // Use absolute voxel sizing, capped to avoid huge allocations
-    const antiGridRes = Math.min(1 << depth, 128);
-    if (evalStats) evalStats.voxels += (antiGridRes + 1) ** 3;
+    // Use per-axis resolution with lower total cap
+    const antiVoxelSize = resToVoxelSize(res);
+    const antiGridRes = perAxisResolution(bounds, antiVoxelSize, 128 * 128 * 128);
+    if (evalStats) evalStats.voxels += (antiGridRes[0] + 1) * (antiGridRes[1] + 1) * (antiGridRes[2] + 1);
     const antiGeo = meshField(antiField, bounds, antiGridRes);
     if (antiGeo.index && antiGeo.index.count > 0) {
       addAntiMesh(group, antiGeo);
@@ -624,13 +625,12 @@ function meshCSGNode(node) {
 
 // Original uniform-grid meshing (fallback)
 function meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorField, antiField) {
-  // Compute uniform grid resolution from bounds + absolute voxel size, capped at 256
-  const uniformDepth = depthForBounds(bounds, res);
-  const uniformRes = Math.min(1 << uniformDepth, 256);
-  if (evalStats) evalStats.voxels += (uniformRes + 1) ** 3;
+  const voxelSize = resToVoxelSize(res);
+  const gridRes = perAxisResolution(bounds, voxelSize, 256 * 256 * 256);
+  if (evalStats) evalStats.voxels += (gridRes[0] + 1) * (gridRes[1] + 1) * (gridRes[2] + 1);
   const group = new THREE.Group();
 
-  const solidGeo = meshField(solidField, bounds, uniformRes, solidColorField);
+  const solidGeo = meshField(solidField, bounds, gridRes, solidColorField);
   if (solidGeo.index && solidGeo.index.count > 0) {
     const solidMat = new THREE.MeshStandardMaterial({
       vertexColors: true,
@@ -641,7 +641,7 @@ function meshCSGNodeUniform(node, res, bounds, csgField, solidField, solidColorF
     group.add(solidMesh);
   }
 
-  const antiGeo = meshField(antiField, bounds, uniformRes);
+  const antiGeo = meshField(antiField, bounds, gridRes);
   if (antiGeo.index && antiGeo.index.count > 0) {
     addAntiMesh(group, antiGeo);
   }

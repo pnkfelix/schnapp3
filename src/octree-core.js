@@ -211,28 +211,34 @@ export function meshOctreeLeavesRaw(leaves, pointField, bounds, maxDepth, colorF
 }
 
 // Pure computation version of meshFieldRaw (uniform grid, no Three.js)
+// resolution: number (isotropic) or [nx, ny, nz] (per-axis)
 export function meshFieldRaw(field, bounds, resolution, colorField) {
   const [minX, minY, minZ] = bounds.min;
   const [maxX, maxY, maxZ] = bounds.max;
-  const n = resolution;
-  const sx = (maxX - minX) / n, sy = (maxY - minY) / n, sz = (maxZ - minZ) / n;
+  let nx, ny, nz;
+  if (Array.isArray(resolution)) {
+    [nx, ny, nz] = resolution;
+  } else {
+    nx = ny = nz = resolution;
+  }
+  const sx = (maxX - minX) / nx, sy = (maxY - minY) / ny, sz = (maxZ - minZ) / nz;
 
-  const gn = n + 1;
-  const grid = new Float32Array(gn * gn * gn);
-  for (let z = 0; z < gn; z++)
-    for (let y = 0; y < gn; y++)
-      for (let x = 0; x < gn; x++)
-        grid[x + y * gn + z * gn * gn] = field(minX + x * sx, minY + y * sy, minZ + z * sz);
+  const gnx = nx + 1, gny = ny + 1, gnz = nz + 1;
+  const grid = new Float32Array(gnx * gny * gnz);
+  for (let z = 0; z < gnz; z++)
+    for (let y = 0; y < gny; y++)
+      for (let x = 0; x < gnx; x++)
+        grid[x + y * gnx + z * gnx * gny] = field(minX + x * sx, minY + y * sy, minZ + z * sz);
 
-  const g = (x, y, z) => grid[x + y * gn + z * gn * gn];
-  const vertIndex = new Int32Array(n * n * n).fill(-1);
+  const g = (x, y, z) => grid[x + y * gnx + z * gnx * gny];
+  const vertIndex = new Int32Array(nx * ny * nz).fill(-1);
   const verts = [];
   const cornerOff = [[0,0,0],[1,0,0],[0,1,0],[1,1,0],[0,0,1],[1,0,1],[0,1,1],[1,1,1]];
   const edgeList = [[0,1],[2,3],[4,5],[6,7],[0,2],[1,3],[4,6],[5,7],[0,4],[1,5],[2,6],[3,7]];
 
-  for (let cz = 0; cz < n; cz++)
-    for (let cy = 0; cy < n; cy++)
-      for (let cx = 0; cx < n; cx++) {
+  for (let cz = 0; cz < nz; cz++)
+    for (let cy = 0; cy < ny; cy++)
+      for (let cx = 0; cx < nx; cx++) {
         const vals = cornerOff.map(([dx,dy,dz]) => g(cx+dx, cy+dy, cz+dz));
         let hasNeg = false, hasPos = false;
         for (const v of vals) { if (v < 0) hasNeg = true; else hasPos = true; }
@@ -249,11 +255,11 @@ export function meshFieldRaw(field, bounds, resolution, colorField) {
             count++;
           }
         }
-        vertIndex[cx + cy * n + cz * n * n] = verts.length / 3;
+        vertIndex[cx + cy * nx + cz * nx * ny] = verts.length / 3;
         verts.push(px / count, py / count, pz / count);
       }
 
-  const ci = (x, y, z) => vertIndex[x + y * n + z * n * n];
+  const ci = (x, y, z) => vertIndex[x + y * nx + z * nx * ny];
   const faces = [];
   function quad(c0, c1, c2, c3, flip) {
     const i0 = ci(...c0), i1 = ci(...c1), i2 = ci(...c2), i3 = ci(...c3);
@@ -262,21 +268,21 @@ export function meshFieldRaw(field, bounds, resolution, colorField) {
     else faces.push(i0, i1, i2, i0, i2, i3);
   }
 
-  for (let iz = 1; iz < n; iz++)
-    for (let iy = 1; iy < n; iy++)
-      for (let ix = 0; ix < n; ix++)
+  for (let iz = 1; iz < nz; iz++)
+    for (let iy = 1; iy < ny; iy++)
+      for (let ix = 0; ix < nx; ix++)
         if ((g(ix,iy,iz) < 0) !== (g(ix+1,iy,iz) < 0))
           quad([ix,iy-1,iz-1],[ix,iy,iz-1],[ix,iy,iz],[ix,iy-1,iz], g(ix,iy,iz) >= 0);
 
-  for (let iz = 1; iz < n; iz++)
-    for (let iy = 0; iy < n; iy++)
-      for (let ix = 1; ix < n; ix++)
+  for (let iz = 1; iz < nz; iz++)
+    for (let iy = 0; iy < ny; iy++)
+      for (let ix = 1; ix < nx; ix++)
         if ((g(ix,iy,iz) < 0) !== (g(ix,iy+1,iz) < 0))
           quad([ix-1,iy,iz-1],[ix,iy,iz-1],[ix,iy,iz],[ix-1,iy,iz], g(ix,iy,iz) >= 0);
 
-  for (let iz = 0; iz < n; iz++)
-    for (let iy = 1; iy < n; iy++)
-      for (let ix = 1; ix < n; ix++)
+  for (let iz = 0; iz < nz; iz++)
+    for (let iy = 1; iy < ny; iy++)
+      for (let ix = 1; ix < nx; ix++)
         if ((g(ix,iy,iz) < 0) !== (g(ix,iy,iz+1) < 0))
           quad([ix-1,iy-1,iz],[ix,iy-1,iz],[ix,iy,iz],[ix-1,iy,iz], g(ix,iy,iz) >= 0);
 
@@ -284,11 +290,11 @@ export function meshFieldRaw(field, bounds, resolution, colorField) {
   const eps = Math.min(sx, sy, sz) * 0.5;
   for (let i = 0; i < verts.length; i += 3) {
     const x = verts[i], y = verts[i+1], z = verts[i+2];
-    let nx = field(x + eps, y, z) - field(x - eps, y, z);
-    let ny = field(x, y + eps, z) - field(x, y - eps, z);
-    let nz = field(x, y, z + eps) - field(x, y, z - eps);
-    const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-    normals[i] = nx / len; normals[i+1] = ny / len; normals[i+2] = nz / len;
+    let fnx = field(x + eps, y, z) - field(x - eps, y, z);
+    let fny = field(x, y + eps, z) - field(x, y - eps, z);
+    let fnz = field(x, y, z + eps) - field(x, y, z - eps);
+    const len = Math.sqrt(fnx * fnx + fny * fny + fnz * fnz) || 1;
+    normals[i] = fnx / len; normals[i+1] = fny / len; normals[i+2] = fnz / len;
   }
 
   const positions = new Float32Array(verts);
@@ -330,4 +336,22 @@ export function depthForBounds(bounds, resolution) {
     bounds.max[2] - bounds.min[2]
   );
   return Math.min(MAX_DEPTH, Math.max(3, Math.ceil(Math.log2(maxExtent / voxelSize))));
+}
+
+// Per-axis grid resolution: equal voxel sizes on all axes, total cells capped.
+export function perAxisResolution(bounds, voxelSize, maxTotal) {
+  const ex = bounds.max[0] - bounds.min[0];
+  const ey = bounds.max[1] - bounds.min[1];
+  const ez = bounds.max[2] - bounds.min[2];
+  let nx = Math.max(1, Math.ceil(ex / voxelSize));
+  let ny = Math.max(1, Math.ceil(ey / voxelSize));
+  let nz = Math.max(1, Math.ceil(ez / voxelSize));
+  const total = nx * ny * nz;
+  if (total > maxTotal) {
+    const scale = Math.cbrt(maxTotal / total);
+    nx = Math.max(1, Math.round(nx * scale));
+    ny = Math.max(1, Math.round(ny * scale));
+    nz = Math.max(1, Math.round(nz * scale));
+  }
+  return [nx, ny, nz];
 }

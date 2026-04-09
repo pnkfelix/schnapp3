@@ -34,7 +34,7 @@ import { expandAST } from '../src/expand.js';
 import { evalCSGField, estimateBounds as estimateBoundsCSG, UNSET_COLOR, UNSET_RGB, setTextSDFGrids, getTextGridBounds } from '../src/csg-field.js';
 import { evalCSGFieldInterval, setTextBoundsProvider } from '../src/interval-eval.js';
 import { classify } from '../src/interval.js';
-import { buildOctree, meshOctreeLeavesRaw, meshFieldRaw, resToDepth, depthForBounds } from '../src/octree-core.js';
+import { buildOctree, meshOctreeLeavesRaw, meshFieldRaw, resToDepth, depthForBounds, resToVoxelSize, perAxisResolution } from '../src/octree-core.js';
 // Main-thread path imports
 import { evaluate, setResolution, setUseOctree, benchCache } from '../src/evaluator.js';
 import { evalField } from '../src/eval/sdf-field.js';
@@ -257,14 +257,16 @@ function runWorkerPipeline(ast, depth, resolution) {
   }
 
   if (!usedOctree) {
-    const fallbackRes = 1 << depth;
+    const voxelSize = resolution ? resToVoxelSize(resolution) : (bounds.max[0] - bounds.min[0]) / (1 << depth);
+    const fallbackRes = perAxisResolution(bounds, voxelSize, 256 * 256 * 256);
     solidRaw = meshFieldRaw(solidField, bounds, fallbackRes, solidColorField);
-    stats.pointEvals = (fallbackRes + 1) ** 3;
+    stats.pointEvals = (fallbackRes[0] + 1) * (fallbackRes[1] + 1) * (fallbackRes[2] + 1);
   }
 
-  const antiRes = Math.min(1 << depth, 48);
+  const antiVoxelSize = resolution ? resToVoxelSize(resolution) : (bounds.max[0] - bounds.min[0]) / (1 << depth);
+  const antiRes = perAxisResolution(bounds, antiVoxelSize, 48 * 48 * 48);
   const antiRaw = meshFieldRaw(antiField, bounds, antiRes, null);
-  stats.pointEvals += (antiRes + 1) ** 3;
+  stats.pointEvals += (antiRes[0] + 1) * (antiRes[1] + 1) * (antiRes[2] + 1);
 
   const elapsed = Math.round(performance.now() - t0);
 
