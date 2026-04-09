@@ -471,6 +471,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: border-color 0.3s ease, background 0.3s ease;
 }
 
 .drop-zone--gap.drop-zone--teleport-target {
@@ -481,6 +482,7 @@ html, body {
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  transition: min-height 0.3s ease, border-color 0.3s ease, background 0.3s ease;
 }
 
 .teleport-exit-icon {

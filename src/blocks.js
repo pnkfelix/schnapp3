@@ -898,25 +898,34 @@ function showTeleportTargets() {
   if (!srcEl) { teleportBlockId = null; return; }
   srcEl.classList.add('block--teleport-source');
 
-  // Mark all drop zones outside the source block's subtree as teleport targets
+  // Collect targets outside the source block's subtree
+  const dropTargets = [];
   for (const dz of workspaceEl.querySelectorAll('.drop-zone[data-drop-target]')) {
-    if (srcEl.contains(dz)) continue; // skip zones inside the block being moved
-    dz.classList.add('drop-zone--teleport-target');
-    const icon = document.createElement('span');
-    icon.className = 'teleport-exit-icon';
-    icon.innerHTML = EXIT_PORTAL_SVG;
-    dz.appendChild(icon);
+    if (!srcEl.contains(dz)) dropTargets.push(dz);
+  }
+  const exprTargets = [];
+  for (const es of workspaceEl.querySelectorAll('.expr-slot[data-expr-target]')) {
+    if (!srcEl.contains(es)) exprTargets.push(es);
   }
 
-  // Also mark expr-slots outside the source block
-  for (const es of workspaceEl.querySelectorAll('.expr-slot[data-expr-target]')) {
-    if (srcEl.contains(es)) continue;
-    es.classList.add('expr-slot--teleport-target');
-    const icon = document.createElement('span');
-    icon.className = 'teleport-exit-icon';
-    icon.innerHTML = EXIT_PORTAL_SVG;
-    es.appendChild(icon);
-  }
+  // Defer class + icon addition so the browser paints the initial layout
+  // first, then CSS transitions animate the expansion smoothly
+  requestAnimationFrame(() => {
+    for (const dz of dropTargets) {
+      dz.classList.add('drop-zone--teleport-target');
+      const icon = document.createElement('span');
+      icon.className = 'teleport-exit-icon';
+      icon.innerHTML = EXIT_PORTAL_SVG;
+      dz.appendChild(icon);
+    }
+    for (const es of exprTargets) {
+      es.classList.add('expr-slot--teleport-target');
+      const icon = document.createElement('span');
+      icon.className = 'teleport-exit-icon';
+      icon.innerHTML = EXIT_PORTAL_SVG;
+      es.appendChild(icon);
+    }
+  });
 }
 
 let highlightTimer = null;
