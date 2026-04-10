@@ -249,6 +249,9 @@ const allBlocks = new Map();
 const subscribers = [];
 let nextId = 1;
 
+// Teleportation clipboard: block ID currently being teleported, or null
+let teleportBlockId = null;
+
 function notify(changedBlockId) {
   for (const fn of subscribers) fn(changedBlockId);
 }
@@ -884,6 +887,45 @@ export function renderWorkspace() {
   rootDrop.dataset.dropTarget = 'root:' + rootBlocks.length;
   rootDrop.textContent = rootBlocks.length === 0 ? 'Drag blocks here' : '+';
   workspaceEl.appendChild(rootDrop);
+  if (teleportBlockId) showTeleportTargets();
+}
+
+const EXIT_PORTAL_SVG = '<svg viewBox="0 0 24 24" width="18" height="18"><ellipse cx="9" cy="12" rx="6" ry="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13 12h9m-3-3.5 3 3.5-3 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function showTeleportTargets() {
+  if (!teleportBlockId || !workspaceEl) return;
+  const srcEl = workspaceEl.querySelector(`.block[data-block-id="${teleportBlockId}"]`);
+  if (!srcEl) { teleportBlockId = null; return; }
+  srcEl.classList.add('block--teleport-source');
+
+  // Collect targets outside the source block's subtree
+  const dropTargets = [];
+  for (const dz of workspaceEl.querySelectorAll('.drop-zone[data-drop-target]')) {
+    if (!srcEl.contains(dz)) dropTargets.push(dz);
+  }
+  const exprTargets = [];
+  for (const es of workspaceEl.querySelectorAll('.expr-slot[data-expr-target]')) {
+    if (!srcEl.contains(es)) exprTargets.push(es);
+  }
+
+  // Defer class + icon addition so the browser paints the initial layout
+  // first, then CSS transitions animate the expansion smoothly
+  requestAnimationFrame(() => {
+    for (const dz of dropTargets) {
+      dz.classList.add('drop-zone--teleport-target');
+      const icon = document.createElement('span');
+      icon.className = 'teleport-exit-icon';
+      icon.innerHTML = EXIT_PORTAL_SVG;
+      dz.appendChild(icon);
+    }
+    for (const es of exprTargets) {
+      es.classList.add('expr-slot--teleport-target');
+      const icon = document.createElement('span');
+      icon.className = 'teleport-exit-icon';
+      icon.innerHTML = EXIT_PORTAL_SVG;
+      es.appendChild(icon);
+    }
+  });
 }
 
 let highlightTimer = null;
@@ -1071,6 +1113,19 @@ function renderBlock(block) {
     header.appendChild(promote);
   }
 
+  // Teleport button (portal icon — oval with arrow going in)
+  const teleportBtn = document.createElement('button');
+  teleportBtn.className = 'block__teleport';
+  teleportBtn.dataset.teleportId = block.id;
+  teleportBtn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18"><ellipse cx="15" cy="12" rx="6" ry="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M2 12h9m-3-3.5 3 3.5-3 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  if (teleportBlockId && teleportBlockId !== block.id) {
+    teleportBtn.disabled = true;
+  }
+  if (teleportBlockId === block.id) {
+    teleportBtn.classList.add('block__teleport--active');
+  }
+  header.appendChild(teleportBtn);
+
   const del = document.createElement('button');
   del.className = 'block__delete';
   del.textContent = '\u00d7';
@@ -1194,6 +1249,57 @@ function onParamChange(e) {
 }
 
 function onWorkspaceClick(e) {
+  // Teleport button: enter/cancel teleport mode
+  const teleportBtn = e.target.closest('.block__teleport');
+  if (teleportBtn && teleportBtn.dataset.teleportId && !teleportBtn.disabled) {
+    e.stopPropagation();
+    const blockId = teleportBtn.dataset.teleportId;
+    if (teleportBlockId === blockId) {
+      // Clicking origin portal again — cancel
+      teleportBlockId = null;
+    } else {
+      teleportBlockId = blockId;
+    }
+    renderWorkspace();
+    return;
+  }
+
+  // Teleport destination: drop zone clicked while in teleport mode
+  if (teleportBlockId) {
+    const exitIcon = e.target.closest('.teleport-exit-icon');
+    const dropZone = e.target.closest('.drop-zone--teleport-target');
+    const exprSlot = e.target.closest('.expr-slot--teleport-target');
+    if (exitIcon || dropZone || exprSlot) {
+      e.stopPropagation();
+      if (dropZone) {
+        const raw = dropZone.dataset.dropTarget;
+        if (raw && raw.includes(':')) {
+          const parts = raw.split(':');
+          const target = parts[0];
+          const index = parseInt(parts[1], 10);
+          if (target === 'root') {
+            moveBlock(teleportBlockId, null, index);
+          } else {
+            moveBlock(teleportBlockId, target, index);
+          }
+        } else if (raw) {
+          moveBlock(teleportBlockId, raw);
+        }
+      } else if (exprSlot) {
+        const raw = exprSlot.dataset.exprTarget;
+        if (raw) {
+          const colonIdx = raw.indexOf(':');
+          const parentId = raw.slice(0, colonIdx);
+          const paramName = raw.slice(colonIdx + 1);
+          moveToExprSlot(teleportBlockId, parentId, paramName);
+        }
+      }
+      teleportBlockId = null;
+      renderWorkspace();
+      return;
+    }
+  }
+
   const promoteBtn = e.target.closest('.block__promote');
   if (promoteBtn && promoteBtn.dataset.promoteId && !promoteBtn.disabled) {
     e.stopPropagation();
@@ -1204,6 +1310,7 @@ function onWorkspaceClick(e) {
   const delBtn = e.target.closest('.block__delete');
   if (delBtn && delBtn.dataset.deleteId) {
     e.stopPropagation();
+    if (teleportBlockId === delBtn.dataset.deleteId) teleportBlockId = null;
     deleteBlock(delBtn.dataset.deleteId);
     renderWorkspace();
   }

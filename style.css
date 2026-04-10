@@ -423,6 +423,98 @@ html, body {
   box-shadow: 0 0 12px 2px rgba(233,69,96,0.3);
 }
 
+/* ---- Teleport clipboard ---- */
+
+.block__teleport {
+  min-width: 32px;
+  min-height: 32px;
+  border: none;
+  background: rgba(255,255,255,0.10);
+  color: rgba(255,255,255,0.8);
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 4px;
+  padding: 0;
+}
+
+.block__teleport:hover:not(:disabled) {
+  background: rgba(180,100,255,0.4);
+}
+
+.block__teleport:disabled {
+  opacity: 0.2;
+  cursor: not-allowed;
+}
+
+.block__teleport--active {
+  background: rgba(180,100,255,0.5);
+  box-shadow: 0 0 8px rgba(180,100,255,0.6);
+  color: #fff;
+}
+
+.block--teleport-source {
+  outline: 2px solid rgba(180,100,255,0.7);
+  outline-offset: 2px;
+  box-shadow: 0 0 12px 2px rgba(180,100,255,0.3);
+}
+
+.drop-zone--teleport-target {
+  border-color: #e94560;
+  border-style: dashed;
+  background: rgba(233,69,96,0.1);
+  color: #e94560;
+  cursor: pointer;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.3s ease, background 0.3s ease;
+}
+
+.drop-zone--gap.drop-zone--teleport-target {
+  min-height: 40px;
+  border-color: #e94560;
+  background: rgba(233,69,96,0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: min-height 0.3s ease, border-color 0.3s ease, background 0.3s ease;
+}
+
+.teleport-exit-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #e94560;
+  cursor: pointer;
+  padding: 4px;
+  flex-shrink: 0;
+}
+
+.teleport-exit-icon:hover {
+  color: #ff6b84;
+  transform: scale(1.2);
+}
+
+.expr-slot--teleport-target {
+  border-color: #e94560;
+  background: rgba(233,69,96,0.15);
+  cursor: pointer;
+  transition: border-color 0.3s ease, background 0.3s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.expr-slot--teleport-target input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ---- Block type colors ---- */
 
 .block--cube, .palette-item--cube {
